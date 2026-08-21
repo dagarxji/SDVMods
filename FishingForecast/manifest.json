@@ -1,0 +1,15 @@
+{
+  "Name": "Fishing Forecast",
+  "Author": "OpenAI",
+  "Version": "0.1.5",
+  "Description": "Ranks the best accessible fishing locations for five four-hour periods each day.",
+  "UniqueID": "OpenAI.FishingForecast",
+  "EntryDll": "FishingForecast.dll",
+  "MinimumApiVersion": "4.0.0",
+  "Dependencies": [
+    {
+      "UniqueID": "pneuma163.WorldNavigator",
+      "IsRequired": false
+    }
+  ]
+}

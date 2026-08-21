@@ -1,0 +1,22 @@
+{
+  "Name": "Auto-Eat + Eidee Easy Fishing Bridge",
+  "Author": "Local",
+  "Version": "1.2.0",
+  "Description": "Resumes Eidee Easy Fishing Auto Recast after Auto-Eat interrupts a cast to consume food.",
+  "UniqueID": "Local.AutoEatEideeBridge",
+  "EntryDll": "AutoEatEideeBridge.dll",
+  "MinimumApiVersion": "4.0.0",
+  "MinimumGameVersion": "1.6.3",
+  "Dependencies": [
+    {
+      "UniqueID": "net.eidee.stardew_valley.easy_fishing",
+      "IsRequired": true,
+      "MinimumVersion": "1.4.0"
+    },
+    {
+      "UniqueID": "Permamiss.AutoEat",
+      "IsRequired": true,
+      "MinimumVersion": "2.3.3"
+    }
+  ]
+}

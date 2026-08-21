@@ -1,0 +1,9 @@
+{
+  "Name": "Better Bundle Overview",
+  "Author": "OpenAI",
+  "Version": "0.2.0",
+  "Description": "Shows bundle requirements directly on the Community Center overview page while keeping the vanilla bundle donation page unchanged.",
+  "UniqueID": "OpenAI.BetterBundleOverview",
+  "EntryDll": "BetterBundleOverview.dll",
+  "MinimumApiVersion": "4.0.0"
+}

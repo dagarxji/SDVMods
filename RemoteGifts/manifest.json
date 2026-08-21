@@ -1,0 +1,9 @@
+{
+  "Name": "Remote Social Interactions",
+  "Author": "OpenAI",
+  "Version": "1.1.0",
+  "Description": "Makes the vanilla Social-menu gift and talk icons clickable for remote gifting, quest delivery, and conversation.",
+  "UniqueID": "OpenAI.RemoteSocialInteractions",
+  "EntryDll": "RemoteSocialInteractions.dll",
+  "MinimumApiVersion": "4.0.0"
+}

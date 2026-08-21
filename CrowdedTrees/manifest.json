@@ -1,0 +1,10 @@
+{
+  "Name": "Crowded Wild Trees",
+  "Author": "Local",
+  "Version": "1.0.0",
+  "Description": "Allows oak, maple, and pine trees to reach maturity beside other mature wild trees while preserving normal growth chances.",
+  "UniqueID": "Local.CrowdedWildTrees",
+  "EntryDll": "CrowdedWildTrees.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

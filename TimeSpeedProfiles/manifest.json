@@ -1,0 +1,21 @@
+{
+  "Name": "TimeSpeed Profiles",
+  "Author": "OpenAI",
+  "Version": "%ProjectVersion%",
+  "Description": "Automatically switches between complete TimeSpeed configuration profiles for single-player and multiplayer/co-op.",
+  "UniqueID": "OpenAI.TimeSpeedProfiles",
+  "EntryDll": "TimeSpeedProfiles.dll",
+  "MinimumApiVersion": "4.1.10",
+  "Dependencies": [
+    {
+      "UniqueID": "cantorsdust.TimeSpeed",
+      "MinimumVersion": "2.8.1",
+      "IsRequired": true
+    },
+    {
+      "UniqueID": "spacechase0.GenericModConfigMenu",
+      "MinimumVersion": "1.15.0",
+      "IsRequired": false
+    }
+  ]
+}

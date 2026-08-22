@@ -1,8 +1,8 @@
 {
   "Name": "Auto-Eat + Eidee Easy Fishing Bridge",
   "Author": "Local",
-  "Version": "1.2.0",
-  "Description": "Resumes Eidee Easy Fishing Auto Recast after Auto-Eat interrupts a cast to consume food.",
+  "Version": "1.3.0",
+  "Description": "Resumes Eidee Auto Recast after Auto-Eat, tracks fishing stats, and manages a level-scaled daily catch cap.",
   "UniqueID": "Local.AutoEatEideeBridge",
   "EntryDll": "AutoEatEideeBridge.dll",
   "MinimumApiVersion": "4.0.0",

@@ -19,6 +19,6 @@ internal sealed class ModConfig
     public int TrackerX { get; set; } = -1;
     public int TrackerY { get; set; } = -1;
 
-    // Once this many fish are caught in a day, the bridge stops re-arming Auto Recast after Auto-Eat interrupts it. 0 disables the cap.
+    // The level-10 daily cap. Each fishing level receives one tenth of this amount; 0 disables the cap.
     public int DailyFishCatchCap { get; set; } = 500;
 }

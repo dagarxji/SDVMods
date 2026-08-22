@@ -40,6 +40,17 @@ The tracker can be shown or hidden with `F8` by default, or with a keybinding
 configured through Generic Mod Config Menu. Hold `Shift` and left-click-drag
 the tracker to move it; its position is saved automatically.
 
+The daily fish catch cap is the maximum at fishing level 10. The active cap is
+one tenth of that maximum per fishing level (for example, the default maximum
+of 500 gives a cap of 50 at level 1, 100 at level 2, and 500 at level 10).
+Setting the maximum to 0 disables the cap.
+
+At base fishing level 10, every fish caught has a 0.1% chance to drop an
+**Angler's Seal**. It cannot drop below level 10, and temporary fishing buffs
+do not bypass that requirement. Hold the seal and use it with the action or
+tool button to permanently remove the daily catch cap for that farmer. The
+unlock is stored in the save, and the seal stops dropping once it is used.
+
 ## Important stamina setting
 
 Eidee has its own safety check that stops Auto Recast *before* a cast that would

@@ -8,6 +8,7 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
+using StardewValley.GameData.Objects;
 using StardewValley.Menus;
 using StardewValley.Tools;
 
@@ -42,6 +43,10 @@ internal sealed class ModEntry : Mod
     private const int TrackerPadding = 22;
     private const double StatsRefreshIntervalSeconds = 5d;
     private const string GenericModConfigMenuId = "spacechase0.GenericModConfigMenu";
+    private const string CapRemovalItemId = "Local.AutoEatEideeBridge_AnglersSeal";
+    private const string QualifiedCapRemovalItemId = "(O)" + CapRemovalItemId;
+    private const string CapRemovedModDataKey = "Local.AutoEatEideeBridge/DailyCapRemoved";
+    private const double CapRemovalItemDropChance = 0.001d;
 
     private static ModEntry? Instance;
 
@@ -105,6 +110,29 @@ internal sealed class ModEntry : Mod
         helper.Events.Player.Warped += OnWarped;
         helper.Events.Display.RenderedHud += OnRenderedHud;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
+        helper.Events.Content.AssetRequested += OnAssetRequested;
+    }
+
+    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
+    {
+        if (!e.NameWithoutLocale.IsEquivalentTo("Data/Objects"))
+            return;
+
+        e.Edit(asset =>
+        {
+            asset.AsDictionary<string, ObjectData>().Data[CapRemovalItemId] = new ObjectData
+            {
+                Name = "Angler's Seal",
+                DisplayName = "Angler's Seal",
+                Description = "A rare seal earned through mastery of fishing. Use it to remove the daily fish catch cap.",
+                Type = "Basic",
+                Category = StardewValley.Object.junkCategory,
+                Price = 0,
+                Edibility = -300,
+                Texture = "Maps/springobjects",
+                SpriteIndex = 74
+            };
+        });
     }
 
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
@@ -314,11 +342,12 @@ internal sealed class ModEntry : Mod
         if (_readyTicks < ReadyTicksRequired)
             return;
 
-        if (_config.DailyFishCatchCap > 0 && GetFishCaughtToday() >= _config.DailyFishCatchCap)
+        int dailyFishCatchCap = GetDailyFishCatchCap();
+        if (!IsDailyCapRemoved() && _config.DailyFishCatchCap > 0 && GetFishCaughtToday() >= dailyFishCatchCap)
         {
             if (!_dailyCapNotified)
             {
-                Monitor.Log($"Daily fish catch cap ({_config.DailyFishCatchCap}) reached; leaving Auto Recast paused after eating instead of resuming it.", LogLevel.Info);
+                Monitor.Log($"Daily fish catch cap ({dailyFishCatchCap}) reached; leaving Auto Recast paused after eating instead of resuming it.", LogLevel.Info);
                 _dailyCapNotified = true;
             }
 
@@ -408,6 +437,12 @@ internal sealed class ModEntry : Mod
         return Math.Max(0, GetTotalFishCaught() - _fishCaughtAtDayStart);
     }
 
+    private int GetDailyFishCatchCap()
+    {
+        int fishingLevel = Math.Clamp(Game1.player.FishingLevel, 0, 10);
+        return _config.DailyFishCatchCap / 10 * fishingLevel;
+    }
+
     // Fires once per real fish caught (not garbage), with the exact species/quality/count of that catch.
     private void RecordFishCatch(string fishId, int fishQuality, int numCaught)
     {
@@ -427,10 +462,58 @@ internal sealed class ModEntry : Mod
         if (fish is not StardewValley.Object caughtFish || caughtFish.Category != StardewValley.Object.FishCategory)
             return;
 
+        TryDropCapRemovalItem(numCaught);
+
         int value = caughtFish.sellToStorePrice(Game1.player.UniqueMultiplayerID) * Math.Max(1, numCaught);
 
         _sessionGoldEarned += value;
         _dayGoldEarned += value;
+    }
+
+    private void TryDropCapRemovalItem(int numCaught)
+    {
+        if (IsDailyCapRemoved() || Game1.player.fishingLevel.Value < 10 || PlayerHasCapRemovalItem())
+            return;
+
+        bool dropped = false;
+        for (int fishIndex = 0; fishIndex < Math.Max(1, numCaught); fishIndex++)
+        {
+            if (Game1.random.NextDouble() < CapRemovalItemDropChance)
+            {
+                dropped = true;
+                break;
+            }
+        }
+
+        if (!dropped)
+            return;
+
+        Item seal = ItemRegistry.Create(QualifiedCapRemovalItemId);
+        bool addedToInventory = Game1.player.addItemToInventoryBool(seal);
+        if (!addedToInventory)
+            Game1.createItemDebris(seal, Game1.player.getStandingPosition(), -1, Game1.currentLocation);
+
+        Game1.playSound("discoverMineral");
+        string message = addedToInventory
+            ? "You found an Angler's Seal!"
+            : "An Angler's Seal dropped at your feet!";
+        Game1.addHUDMessage(new HUDMessage(message, HUDMessage.newQuest_type));
+    }
+
+    private static bool PlayerHasCapRemovalItem()
+    {
+        foreach (Item? item in Game1.player.Items)
+        {
+            if (item?.QualifiedItemId == QualifiedCapRemovalItemId)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsDailyCapRemoved()
+    {
+        return Game1.player.modData.TryGetValue(CapRemovedModDataKey, out string? value) && value == "true";
     }
 
     private void RefreshComputedStats()
@@ -531,6 +614,9 @@ internal sealed class ModEntry : Mod
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
+        if (TryUseCapRemovalItem(e.Button))
+            return;
+
         if (_config.ToggleTracker.JustPressed())
         {
             _config.ShowTracker = !_config.ShowTracker;
@@ -556,6 +642,24 @@ internal sealed class ModEntry : Mod
 
         // Stop this click from also reaching the fishing rod (which would otherwise start casting).
         Helper.Input.Suppress(e.Button);
+    }
+
+    private bool TryUseCapRemovalItem(SButton button)
+    {
+        if (!Context.IsWorldReady || !Context.IsPlayerFree ||
+            (!button.IsUseToolButton() && !button.IsActionButton()) ||
+            Game1.player.ActiveObject?.QualifiedItemId != QualifiedCapRemovalItemId)
+        {
+            return false;
+        }
+
+        Game1.player.modData[CapRemovedModDataKey] = "true";
+        Game1.player.reduceActiveItemByOne();
+        Helper.Input.Suppress(button);
+        Game1.playSound("reward");
+        Game1.addHUDMessage(new HUDMessage("The daily fish catch cap has been permanently removed.", HUDMessage.newQuest_type));
+        Monitor.Log("The player used an Angler's Seal; the daily fish catch cap is now permanently removed.", LogLevel.Info);
+        return true;
     }
 
     private void UpdateTrackerDrag()
@@ -653,8 +757,8 @@ internal sealed class ModEntry : Mod
             ModManifest,
             getValue: () => _config.DailyFishCatchCap,
             setValue: value => _config.DailyFishCatchCap = value,
-            name: () => "Daily fish catch cap",
-            tooltip: () => "Once this many fish are caught today, the bridge stops re-arming Auto Recast after Auto-Eat interrupts it, so you'll need to recast manually. Set to 0 to disable the cap.",
+            name: () => "Maximum daily fish catch cap",
+            tooltip: () => "The daily cap at fishing level 10. Lower levels receive one tenth of this amount per level. Once reached, the bridge stops re-arming Auto Recast after Auto-Eat interrupts it. Set to 0 to disable the cap.",
             min: 0,
             max: 2000,
             interval: 10

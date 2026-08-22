@@ -18,6 +18,7 @@ internal sealed class ModConfig
     public KeybindList ToggleTracker { get; set; } = new(SButton.F8);
     public int TrackerX { get; set; } = -1;
     public int TrackerY { get; set; } = -1;
+    public bool DeleteFishingTrash { get; set; } = false;
 
     // The level-10 daily cap. Each fishing level receives one tenth of this amount; 0 disables the cap.
     public int DailyFishCatchCap { get; set; } = 500;

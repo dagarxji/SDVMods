@@ -45,6 +45,10 @@ one tenth of that maximum per fishing level (for example, the default maximum
 of 500 gives a cap of 50 at level 1, 100 at level 2, and 500 at level 10).
 Setting the maximum to 0 disables the cap.
 
+Generic Mod Config Menu also includes an **Automatically delete fishing
+trash** option. When enabled, caught trash and Joja Cola are removed instead
+of being kept in the farmer's inventory. Algae and seaweed are preserved.
+
 At base fishing level 10, every fish caught has a 0.1% chance to drop an
 **Angler's Seal**. It cannot drop below level 10, and temporary fishing buffs
 do not bypass that requirement. Hold the seal and use it with the action or

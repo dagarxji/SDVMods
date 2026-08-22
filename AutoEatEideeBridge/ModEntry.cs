@@ -31,6 +31,8 @@ namespace AutoEatEideeBridge;
 /// </summary>
 internal sealed class ModEntry : Mod
 {
+    private readonly record struct CatchInventoryState(string ItemId, int PreviousCount, bool IsTrash);
+
     private const string EideeTypeName = "EideeEasyFishing.ModEntry";
     private const string AutoEatTypeName = "AutoEat.ModEntry";
 
@@ -143,24 +145,25 @@ internal sealed class ModEntry : Mod
 
         try
         {
-            // Hooked independently of the Eidee/Auto-Eat integration below so gold/rate tracking
-            // works even if one of those mods isn't installed.
+            // Hooked independently of the Eidee/Auto-Eat integration below so catch tracking and
+            // trash deletion work even if one of those mods isn't installed.
             MethodInfo? playerCaughtFish = AccessTools.Method(typeof(FishingRod), "playerCaughtFishEndFunction");
             if (playerCaughtFish is not null)
             {
                 _harmony.Patch(
                     original: playerCaughtFish,
+                    prefix: new HarmonyMethod(typeof(ModEntry), nameof(BeforePlayerCaughtFish)),
                     postfix: new HarmonyMethod(typeof(ModEntry), nameof(AfterPlayerCaughtFish))
                 );
             }
             else
             {
-                Monitor.Log("Couldn't find FishingRod.playerCaughtFishEndFunction; gold tracking will be unavailable.", LogLevel.Warn);
+                Monitor.Log("Couldn't find FishingRod.playerCaughtFishEndFunction; catch tracking and trash deletion will be unavailable.", LogLevel.Warn);
             }
         }
         catch (Exception ex)
         {
-            Monitor.Log($"Failed to patch FishingRod.playerCaughtFishEndFunction for gold tracking: {ex}", LogLevel.Warn);
+            Monitor.Log($"Failed to patch FishingRod.playerCaughtFishEndFunction for catch tracking and trash deletion: {ex}", LogLevel.Warn);
         }
 
         try
@@ -224,11 +227,68 @@ internal sealed class ModEntry : Mod
         }
     }
 
-    /// <summary>Harmony postfix after Stardew finalizes a catch and applies perfect-catch quality upgrades.</summary>
-    private static void AfterPlayerCaughtFish(FishingRod __instance)
+    /// <summary>Harmony prefix used to distinguish the newly caught stack from trash already carried.</summary>
+    private static void BeforePlayerCaughtFish(FishingRod __instance, out CatchInventoryState __state)
     {
+        string itemId = __instance.whichFish.QualifiedItemId;
+        bool isTrash = Instance?._config.DeleteFishingTrash == true && IsFishingTrash(itemId);
+        int previousCount = isTrash ? CountInventoryItem(itemId) : 0;
+        __state = new CatchInventoryState(itemId, previousCount, isTrash);
+    }
+
+    /// <summary>Harmony postfix after Stardew finalizes a catch and applies perfect-catch quality upgrades.</summary>
+    private static void AfterPlayerCaughtFish(FishingRod __instance, CatchInventoryState __state)
+    {
+        if (__state.IsTrash)
+            DeleteInventoryIncrease(__state.ItemId, __state.PreviousCount);
+
         if (!Game1.isFestival())
             Instance?.RecordFishCatch(__instance.whichFish.QualifiedItemId, __instance.fishQuality, __instance.numberOfFishCaught);
+    }
+
+    private static bool IsFishingTrash(string itemId)
+    {
+        Item? item;
+        try
+        {
+            item = ItemRegistry.Create(itemId, 1, 0, allowNull: true);
+        }
+        catch
+        {
+            return false;
+        }
+
+        return item is StardewValley.Object caughtObject &&
+            (caughtObject.Category == StardewValley.Object.junkCategory || item.QualifiedItemId == "(O)167");
+    }
+
+    private static int CountInventoryItem(string itemId)
+    {
+        int count = 0;
+        foreach (Item? item in Game1.player.Items)
+        {
+            if (item?.QualifiedItemId == itemId)
+                count += item.Stack;
+        }
+
+        return count;
+    }
+
+    private static void DeleteInventoryIncrease(string itemId, int previousCount)
+    {
+        int amountToDelete = Math.Max(0, CountInventoryItem(itemId) - previousCount);
+        for (int slot = Game1.player.Items.Count - 1; slot >= 0 && amountToDelete > 0; slot--)
+        {
+            Item? item = Game1.player.Items[slot];
+            if (item?.QualifiedItemId != itemId)
+                continue;
+
+            int removed = Math.Min(item.Stack, amountToDelete);
+            item.Stack -= removed;
+            amountToDelete -= removed;
+            if (item.Stack <= 0)
+                Game1.player.Items[slot] = null;
+        }
     }
 
     /// <summary>Harmony postfix for EideeEasyFishing.ModEntry.UpdateAutoRecast().</summary>
@@ -752,6 +812,13 @@ internal sealed class ModEntry : Mod
             getValue: () => _config.ShowTracker,
             setValue: value => _config.ShowTracker = value,
             name: () => "Show tracker"
+        );
+        api.AddBoolOption(
+            ModManifest,
+            getValue: () => _config.DeleteFishingTrash,
+            setValue: value => _config.DeleteFishingTrash = value,
+            name: () => "Automatically delete fishing trash",
+            tooltip: () => "Delete trash caught while fishing instead of keeping it in your inventory. Algae and seaweed are preserved."
         );
         api.AddNumberOption(
             ModManifest,

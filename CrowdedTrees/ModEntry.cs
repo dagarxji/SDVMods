@@ -97,7 +97,7 @@ internal sealed class ModEntry : Mod
             getValue: () => this.Config.AllowProducingTrees,
             setValue: value => this.Config.AllowProducingTrees = value,
             name: () => "Fruit / producing trees",
-            tooltip: () => "Allow fruit and other producing trees to grow beside each other.",
+            tooltip: () => "Allow fruit and other producing trees to be planted and grow beside each other and paths.",
             fieldId: nameof(ModConfig.AllowProducingTrees)
         );
     }
@@ -195,7 +195,8 @@ internal static class TreePatches
                         continue;
 
                     Vector2 neighborTile = tileLocation + new Vector2(x, y);
-                    if (environment.terrainFeatures.TryGetValue(neighborTile, out TerrainFeature feature) && feature is FruitTree)
+                    if (environment.terrainFeatures.TryGetValue(neighborTile, out TerrainFeature feature)
+                        && feature is FruitTree or Flooring)
                     {
                         removed.Add((neighborTile, feature));
                         environment.terrainFeatures.Remove(neighborTile);

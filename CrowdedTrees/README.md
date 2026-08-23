@@ -5,11 +5,11 @@ A SMAPI mod for Stardew Valley 1.6.x which lets regular and producing trees grow
 ## Behavior
 
 - Supports every regular tree type represented by Stardew Valley's `Tree` terrain feature, including tree types added through `Data/WildTrees`.
-- Supports fruit and other producing trees represented by the `FruitTree` terrain feature, including placing their saplings near each other.
+- Supports fruit and other producing trees represented by the `FruitTree` terrain feature, including placing their saplings near each other and paths.
 - Does **not** make trees grow instantly.
 - Regular trees use their current `Data/WildTrees` growth chance, so content edits to `GrowthChance` and `FertilizedGrowthChance` are respected.
 - Tree fertilizer still uses the fertilized growth chance and can grow trees in winter.
-- Producing trees still respect nearby regular trees and non-tree obstructions such as objects, paths, and buildings.
+- Producing trees still respect nearby regular trees and obstructions such as objects, crops, and buildings.
 - If another mod already allows the tree to mature, this mod detects that and does nothing extra.
 
 ## Configuration

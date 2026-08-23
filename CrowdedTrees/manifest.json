@@ -1,10 +1,17 @@
 {
-  "Name": "Crowded Wild Trees",
+  "Name": "Crowded Trees",
   "Author": "Local",
-  "Version": "1.0.0",
-  "Description": "Allows oak, maple, and pine trees to reach maturity beside other mature wild trees while preserving normal growth chances.",
+  "Version": "1.1.0",
+  "Description": "Allows regular and producing trees to grow beside trees of the same kind.",
   "UniqueID": "Local.CrowdedWildTrees",
   "EntryDll": "CrowdedWildTrees.dll",
   "MinimumApiVersion": "4.0.0",
+  "Dependencies": [
+    {
+      "UniqueID": "spacechase0.GenericModConfigMenu",
+      "MinimumVersion": "1.12.0",
+      "IsRequired": false
+    }
+  ],
   "UpdateKeys": []
 }

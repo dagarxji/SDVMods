@@ -3,6 +3,7 @@ using System.Reflection;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
 using StardewModdingAPI;
+using StardewModdingAPI.Events;
 using StardewValley;
 using StardewValley.TerrainFeatures;
 
@@ -10,31 +11,105 @@ namespace CrowdedWildTrees;
 
 internal sealed class ModEntry : Mod
 {
+    private const string GmcmId = "spacechase0.GenericModConfigMenu";
+
+    private ModConfig Config = new();
+
     public override void Entry(IModHelper helper)
     {
-        TreePatches.Initialize(this.Monitor);
+        this.Config = helper.ReadConfig<ModConfig>();
+        TreePatches.Initialize(this.Monitor, () => this.Config);
+        helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
 
-        MethodInfo? dayUpdate = typeof(Tree)
+        MethodInfo? treeDayUpdate = FindDayUpdate(typeof(Tree));
+        MethodInfo? fruitTreeGrowthCheck = AccessTools.Method(
+            typeof(FruitTree),
+            nameof(FruitTree.IsGrowthBlocked)
+        );
+        MethodInfo? fruitTreeProximityCheck = AccessTools.Method(
+            typeof(FruitTree),
+            nameof(FruitTree.IsTooCloseToAnotherTree)
+        );
+
+        Harmony harmony = new(this.ModManifest.UniqueID);
+        if (treeDayUpdate is not null)
+        {
+            harmony.Patch(
+                original: treeDayUpdate,
+                prefix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.DayUpdate_Prefix)),
+                postfix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.DayUpdate_Postfix))
+            );
+        }
+        else
+        {
+            this.Monitor.Log("Couldn't find Tree.dayUpdate; regular-tree spacing won't be changed.", LogLevel.Error);
+        }
+
+        if (fruitTreeGrowthCheck is not null)
+        {
+            harmony.Patch(
+                original: fruitTreeGrowthCheck,
+                prefix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.FruitTreeGrowthCheck_Prefix)),
+                postfix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.FruitTreeGrowthCheck_Postfix))
+            );
+        }
+        else
+        {
+            this.Monitor.Log("Couldn't find FruitTree.IsGrowthBlocked; producing-tree growth spacing won't be changed.", LogLevel.Error);
+        }
+
+        if (fruitTreeProximityCheck is not null)
+        {
+            harmony.Patch(
+                original: fruitTreeProximityCheck,
+                postfix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.FruitTreeProximityCheck_Postfix))
+            );
+        }
+        else
+        {
+            this.Monitor.Log("Couldn't find FruitTree.IsTooCloseToAnotherTree; producing-tree placement spacing won't be changed.", LogLevel.Error);
+        }
+
+        this.Monitor.Log("Crowded Trees loaded.", LogLevel.Info);
+    }
+
+    private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
+    {
+        IGenericModConfigMenuApi? gmcm = this.Helper.ModRegistry.GetApi<IGenericModConfigMenuApi>(GmcmId);
+        if (gmcm is null)
+            return;
+
+        gmcm.Register(
+            this.ModManifest,
+            reset: () => this.Config = new ModConfig(),
+            save: () => this.Helper.WriteConfig(this.Config)
+        );
+        gmcm.AddBoolOption(
+            this.ModManifest,
+            getValue: () => this.Config.AllowRegularTrees,
+            setValue: value => this.Config.AllowRegularTrees = value,
+            name: () => "Regular trees",
+            tooltip: () => "Allow all regular trees to reach maturity beside other mature regular trees.",
+            fieldId: nameof(ModConfig.AllowRegularTrees)
+        );
+        gmcm.AddBoolOption(
+            this.ModManifest,
+            getValue: () => this.Config.AllowProducingTrees,
+            setValue: value => this.Config.AllowProducingTrees = value,
+            name: () => "Fruit / producing trees",
+            tooltip: () => "Allow fruit and other producing trees to grow beside each other.",
+            fieldId: nameof(ModConfig.AllowProducingTrees)
+        );
+    }
+
+    private static MethodInfo? FindDayUpdate(Type type)
+    {
+        return type
             .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
             .Where(method => method.Name == "dayUpdate")
             .OrderByDescending(method => method.GetParameters().Any(p => p.ParameterType == typeof(GameLocation)))
             .ThenByDescending(method => method.GetParameters().Any(p => p.ParameterType == typeof(Vector2)))
             .FirstOrDefault();
-
-        if (dayUpdate is null)
-        {
-            this.Monitor.Log("Couldn't find Tree.dayUpdate; the mod won't change tree growth.", LogLevel.Error);
-            return;
-        }
-
-        Harmony harmony = new(this.ModManifest.UniqueID);
-        harmony.Patch(
-            original: dayUpdate,
-            prefix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.DayUpdate_Prefix)),
-            postfix: new HarmonyMethod(typeof(TreePatches), nameof(TreePatches.DayUpdate_Postfix))
-        );
-
-        this.Monitor.Log("Crowded Wild Trees loaded. Oak, maple, and pine trees can mature beside other wild trees.", LogLevel.Info);
     }
 }
 
@@ -43,18 +118,13 @@ internal static class TreePatches
     private const int FinalPreMatureStage = 4;
     private const int MatureStage = 5;
 
-    private static readonly HashSet<string> SupportedTreeIds = new(StringComparer.Ordinal)
-    {
-        "1", // oak
-        "2", // maple
-        "3"  // pine
-    };
-
     private static IMonitor Monitor = null!;
+    private static Func<ModConfig> GetConfig = null!;
 
-    internal static void Initialize(IMonitor monitor)
+    internal static void Initialize(IMonitor monitor, Func<ModConfig> getConfig)
     {
         Monitor = monitor;
+        GetConfig = getConfig;
     }
 
     internal static void DayUpdate_Prefix(Tree __instance, object[] __args, out GrowthState __state)
@@ -63,11 +133,10 @@ internal static class TreePatches
 
         try
         {
-            if (GetInt(__instance, "growthStage") != FinalPreMatureStage)
+            if (!GetConfig().AllowRegularTrees)
                 return;
 
-            string? treeId = GetValue(__instance, "treeType")?.ToString();
-            if (treeId is null || !SupportedTreeIds.Contains(treeId))
+            if (GetInt(__instance, "growthStage") != FinalPreMatureStage)
                 return;
 
             GameLocation? location = null;
@@ -102,6 +171,79 @@ internal static class TreePatches
         {
             Monitor.Log($"Error while checking crowded-tree growth; leaving vanilla behavior unchanged.\n{ex}", LogLevel.Error);
         }
+    }
+
+    internal static void FruitTreeGrowthCheck_Prefix(
+        Vector2 tileLocation,
+        GameLocation environment,
+        out ProducingGrowthState? __state
+    )
+    {
+        __state = null;
+
+        try
+        {
+            if (!GetConfig().AllowProducingTrees)
+                return;
+
+            List<(Vector2 Tile, TerrainFeature Feature)> removed = new();
+            for (int x = -1; x <= 1; x++)
+            {
+                for (int y = -1; y <= 1; y++)
+                {
+                    if (x == 0 && y == 0)
+                        continue;
+
+                    Vector2 neighborTile = tileLocation + new Vector2(x, y);
+                    if (environment.terrainFeatures.TryGetValue(neighborTile, out TerrainFeature feature) && feature is FruitTree)
+                    {
+                        removed.Add((neighborTile, feature));
+                        environment.terrainFeatures.Remove(neighborTile);
+                    }
+                }
+            }
+
+            if (removed.Count > 0)
+                __state = new ProducingGrowthState(environment, removed);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Error while preparing crowded producing-tree growth; leaving vanilla behavior unchanged.\n{ex}", LogLevel.Error);
+        }
+    }
+
+    internal static void FruitTreeGrowthCheck_Postfix(ProducingGrowthState? __state)
+    {
+        if (__state is null)
+            return;
+
+        foreach ((Vector2 tile, TerrainFeature feature) in __state.Removed)
+        {
+            if (!__state.Location.terrainFeatures.ContainsKey(tile))
+                __state.Location.terrainFeatures.Add(tile, feature);
+        }
+    }
+
+    internal static void FruitTreeProximityCheck_Postfix(
+        Vector2 tileLocation,
+        GameLocation environment,
+        bool fruitTreesOnly,
+        ref bool __result
+    )
+    {
+        if (!__result || fruitTreesOnly || !GetConfig().AllowProducingTrees)
+            return;
+
+        for (int x = (int)tileLocation.X - 2; x <= (int)tileLocation.X + 2; x++)
+        {
+            for (int y = (int)tileLocation.Y - 2; y <= (int)tileLocation.Y + 2; y++)
+            {
+                if (environment.terrainFeatures.TryGetValue(new Vector2(x, y), out TerrainFeature feature) && feature is Tree)
+                    return;
+            }
+        }
+
+        __result = false;
     }
 
     internal static void DayUpdate_Postfix(Tree __instance, GrowthState __state)
@@ -368,4 +510,9 @@ internal static class TreePatches
     }
 
     internal readonly record struct GrowthState(bool Handle, double GrowthChance);
+
+    internal sealed record ProducingGrowthState(
+        GameLocation Location,
+        List<(Vector2 Tile, TerrainFeature Feature)> Removed
+    );
 }

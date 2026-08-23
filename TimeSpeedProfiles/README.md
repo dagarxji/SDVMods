@@ -7,6 +7,14 @@ A small SMAPI companion for **TimeSpeed 2.8.1** that maintains two complete Time
 
 The active profile is chosen using `Context.IsMultiplayer` and copied into TimeSpeed's normal `config.json`. TimeSpeed's own private reload routine is then invoked, so **TimeSpeed still owns all timing behavior**; this mod only chooses which complete config it receives.
 
+Each profile can also define location-specific time cutoffs. Time runs using the normal TimeSpeed settings in that location until the cutoff, then TimeSpeed's automatic freeze behavior takes over. In GMCM, enter cutoffs as e.g.:
+
+```text
+Farm=2200, Beach=1800
+```
+
+Use internal location names and 24-hour game times in ten-minute increments from `0600` through `2600`. These companion-only cutoffs are stored separately and aren't added to TimeSpeed's generated config.
+
 ## What is included in each profile
 
 Every TimeSpeed 2.8.1 config setting is mirrored:
@@ -36,6 +44,8 @@ Every TimeSpeed 2.8.1 config setting is mirrored:
   - `IncreaseTickInterval`
   - `DecreaseTickInterval`
   - `ReloadConfig`
+
+Each profile also has a companion-provided `Freeze at time by location` map.
 
 Notably, the companion exposes **`SecondsPerMinute.ByLocationName` in GMCM**, even though TimeSpeed 2.8.1 only exposes that setting through its JSON file. Enter it as e.g.:
 

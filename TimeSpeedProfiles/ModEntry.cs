@@ -104,6 +104,20 @@ internal sealed class ModEntry : Mod
         MethodInfo? registerMenuPostfix = AccessTools.Method(typeof(ModEntry), nameof(AfterTimeSpeedRegisterConfigMenu));
         if (registerMenu is not null && registerMenuPostfix is not null)
             harmony.Patch(registerMenu, postfix: new HarmonyMethod(registerMenuPostfix));
+
+        Type? configType = AccessTools.TypeByName("TimeSpeed.Framework.ModConfig");
+        MethodInfo? shouldFreezeAtTime = configType is null
+            ? null
+            : AccessTools.Method(configType, "ShouldFreeze", new[] { typeof(int) });
+        MethodInfo? shouldFreezePostfix = AccessTools.Method(typeof(ModEntry), nameof(AfterTimeSpeedShouldFreezeAtTime));
+        if (shouldFreezeAtTime is null || shouldFreezePostfix is null)
+        {
+            this.Monitor.Log("Couldn't hook TimeSpeed's timed freeze check, so location cutoffs won't be applied.", LogLevel.Error);
+        }
+        else
+        {
+            harmony.Patch(shouldFreezeAtTime, postfix: new HarmonyMethod(shouldFreezePostfix));
+        }
     }
 
     private static void AfterTimeSpeedRegisterConfigMenu()
@@ -115,6 +129,19 @@ internal sealed class ModEntry : Mod
     private static void AfterTimeSpeedSaveLoaded(object __instance)
     {
         Instance?.OnTimeSpeedSaveLoaded(__instance);
+    }
+
+    private static void AfterTimeSpeedShouldFreezeAtTime(int time, ref bool __result)
+    {
+        if (__result || Instance is null || Game1.currentLocation is null)
+            return;
+
+        LocationCutoffConfig cutoffs = Context.IsMultiplayer
+            ? Instance.Config.MultiplayerLocationCutoffs
+            : Instance.Config.SinglePlayerLocationCutoffs;
+
+        if (cutoffs.ByLocationName.TryGetValue(Game1.currentLocation.Name, out int cutoff))
+            __result = time >= cutoff;
     }
 
     private void OnTimeSpeedSaveLoaded(object timeSpeedInstance)
@@ -353,6 +380,23 @@ internal sealed class ModEntry : Mod
             formatValue: value => Game1.getTimeOfDayString(Utility.ConvertMinutesToTime(value)),
             fieldId: $"{fieldPrefix}.FreezeTime.AnywhereAtTime"
         );
+        this.Gmcm.AddTextOption(
+            this.ModManifest,
+            getValue: () => this.GetLocationCutoffs(fieldPrefix).Format(),
+            setValue: value =>
+            {
+                if (!this.GetLocationCutoffs(fieldPrefix).TrySet(value))
+                {
+                    this.Monitor.Log(
+                        $"Ignored invalid location cutoff list for {fieldPrefix}. Use entries like Farm=2200, Beach=1800 in ten-minute increments from 0600 to 2600.",
+                        LogLevel.Trace
+                    );
+                }
+            },
+            name: () => "Freeze at time by location",
+            tooltip: () => "Let time run normally in each listed location until its cutoff. Format: Farm=2200, Beach=1800. Use internal location names and 24-hour game times in ten-minute increments.",
+            fieldId: $"{fieldPrefix}.LocationCutoffs.ByLocationName"
+        );
         this.Gmcm.AddBoolOption(
             this.ModManifest,
             getValue: () => getProfile().FreezeTime.PassOut,
@@ -416,6 +460,13 @@ internal sealed class ModEntry : Mod
             tooltip: () => "Reload TimeSpeed's active generated config. TimeSpeed default: B.",
             fieldId: $"{fieldPrefix}.Keys.ReloadConfig"
         );
+    }
+
+    private LocationCutoffConfig GetLocationCutoffs(string fieldPrefix)
+    {
+        return fieldPrefix == "mp"
+            ? this.Config.MultiplayerLocationCutoffs
+            : this.Config.SinglePlayerLocationCutoffs;
     }
 
     private void AddSpeedOption(

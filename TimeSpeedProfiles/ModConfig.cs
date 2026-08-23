@@ -13,12 +13,78 @@ internal sealed class ModConfig
     /// <summary>The complete TimeSpeed profile used in multiplayer and split-screen.</summary>
     public TimeSpeedProfile Multiplayer { get; set; } = new();
 
+    /// <summary>Location-specific time cutoffs used outside multiplayer.</summary>
+    public LocationCutoffConfig SinglePlayerLocationCutoffs { get; set; } = new();
+
+    /// <summary>Location-specific time cutoffs used in multiplayer and split-screen.</summary>
+    public LocationCutoffConfig MultiplayerLocationCutoffs { get; set; } = new();
+
     public void Normalize()
     {
         this.SinglePlayer ??= new TimeSpeedProfile();
         this.Multiplayer ??= new TimeSpeedProfile();
+        this.SinglePlayerLocationCutoffs ??= new LocationCutoffConfig();
+        this.MultiplayerLocationCutoffs ??= new LocationCutoffConfig();
         this.SinglePlayer.Normalize();
         this.Multiplayer.Normalize();
+        this.SinglePlayerLocationCutoffs.Normalize();
+        this.MultiplayerLocationCutoffs.Normalize();
+    }
+}
+
+/// <summary>Companion-only location cutoffs which aren't written into TimeSpeed's config.</summary>
+internal sealed class LocationCutoffConfig
+{
+    public Dictionary<string, int> ByLocationName { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public void Normalize()
+    {
+        this.ByLocationName = new Dictionary<string, int>(
+            (this.ByLocationName ?? new Dictionary<string, int>())
+                .Where(p => !string.IsNullOrWhiteSpace(p.Key) && IsValidTime(p.Value)),
+            StringComparer.OrdinalIgnoreCase
+        );
+    }
+
+    public string Format()
+    {
+        this.Normalize();
+        return string.Join(", ", this.ByLocationName
+            .OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(p => $"{p.Key}={p.Value}"));
+    }
+
+    public bool TrySet(string? raw)
+    {
+        var parsed = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string item in (raw ?? "").Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            string entry = item.Trim();
+            int separator = entry.LastIndexOf('=');
+            if (separator <= 0 || separator >= entry.Length - 1)
+                return false;
+
+            string location = entry[..separator].Trim();
+            string valueText = entry[(separator + 1)..].Trim();
+            if (location.Length == 0
+                || !int.TryParse(valueText, NumberStyles.None, CultureInfo.InvariantCulture, out int value)
+                || !IsValidTime(value))
+            {
+                return false;
+            }
+
+            parsed[location] = value;
+        }
+
+        this.ByLocationName = parsed;
+        return true;
+    }
+
+    private static bool IsValidTime(int time)
+    {
+        int minutes = time % 100;
+        return time >= 600 && time <= 2600 && minutes <= 50 && minutes % 10 == 0;
     }
 }
 

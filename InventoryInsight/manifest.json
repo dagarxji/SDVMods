@@ -1,0 +1,9 @@
+{
+  "Name": "Inventory Insight",
+  "Author": "OpenAI",
+  "Version": "0.1.0",
+  "Description": "Adds a compact keep-or-sell panel to item tooltips, with gift, bundle, museum, quest, crafting, price, and machine-processing details.",
+  "UniqueID": "OpenAI.InventoryInsight",
+  "EntryDll": "InventoryInsight.dll",
+  "MinimumApiVersion": "4.0.0"
+}

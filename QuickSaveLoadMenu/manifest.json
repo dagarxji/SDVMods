@@ -1,7 +1,7 @@
 {
   "Name": "QuickSave Load Menu",
   "Author": "OpenAI",
-  "Version": "1.0.0",
+  "Version": "1.1.0",
   "Description": "Adds a QuickSave button to each farm on Stardew Valley's Load Game screen so a midday QuickSave can be loaded in one action.",
   "UniqueID": "OpenAI.QuickSaveLoadMenu",
   "EntryDll": "QuickSaveLoadMenu.dll",

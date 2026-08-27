@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text.Json;
 using System.Xml.Linq;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
@@ -19,6 +20,7 @@ public sealed class ModEntry : Mod
 {
     private const string QuickSaveModId = "DLX.QuickSave";
     private const string QuickSaveFileName = "Quicksave";
+    private const string QuickSaveExtraDataKey = "smapi/mod-data/dlx.quicksave/dlx.quicksave_extradata";
     private const int ButtonWidth = 62;
     private const int ButtonHeight = 48;
 
@@ -40,6 +42,7 @@ public sealed class ModEntry : Mod
         helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
         helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
         helper.Events.Display.MenuChanged += this.OnMenuChanged;
+        helper.Events.Display.RenderedActiveMenu += this.OnRenderedActiveMenu;
 
         Harmony harmony = new(this.ModManifest.UniqueID);
 
@@ -97,6 +100,31 @@ public sealed class ModEntry : Mod
         bool newIsLoadMenu = IsLoadMenu(e.NewMenu);
         if (oldWasLoadMenu && !newIsLoadMenu)
             this.slotStates.Clear();
+    }
+
+    private void OnRenderedActiveMenu(object? sender, RenderedActiveMenuEventArgs e)
+    {
+        LoadGameMenu? menu = GetCurrentLoadMenu();
+        if (menu is null)
+            return;
+
+        int mouseX = Game1.getMouseX(true);
+        int mouseY = Game1.getMouseY(true);
+        SlotState? state = this.slotStates.Values.FirstOrDefault(p =>
+            ReferenceEquals(p.Menu, menu) && p.ButtonBounds.Contains(mouseX, mouseY));
+
+        if (state is null)
+            return;
+
+        string tooltip = state.HasQuickSave
+            ? state.QuickSaveDetails is not null
+                ? $"Load midday QuickSave\n{state.QuickSaveDetails.GetDisplayText()}"
+                : "Load midday QuickSave"
+            : this.quickSaveApi is null
+                ? "QuickSave API unavailable"
+                : "No midday QuickSave found";
+
+        IClickableMenu.drawHoverText(e.SpriteBatch, tooltip, Game1.smallFont);
     }
 
     private void OnSaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -277,9 +305,7 @@ public sealed class ModEntry : Mod
             state.ButtonBounds = bounds;
         }
 
-        state.HasQuickSave = this.quickSaveApi is not null
-            && state.SaveFolder is not null
-            && File.Exists(Path.Combine(state.SaveFolder, QuickSaveFileName));
+        this.UpdateQuickSaveState(state);
 
         bool hover = bounds.Contains(Game1.getMouseX(true), Game1.getMouseY(true));
         Color boxColor = state.HasQuickSave
@@ -302,15 +328,73 @@ public sealed class ModEntry : Mod
             state.HasQuickSave ? Game1.textColor : Color.DarkGray
         );
 
-        if (hover)
-        {
-            string tooltip = state.HasQuickSave
-                ? "Load midday QuickSave"
-                : this.quickSaveApi is null
-                    ? "QuickSave API unavailable"
-                    : "No midday QuickSave found";
+    }
 
-            IClickableMenu.drawHoverText(b, tooltip, Game1.smallFont);
+    private void UpdateQuickSaveState(SlotState state)
+    {
+        if (this.quickSaveApi is null || state.SaveFolder is null)
+        {
+            state.ClearQuickSave();
+            return;
+        }
+
+        string path = Path.Combine(state.SaveFolder, QuickSaveFileName);
+        if (!File.Exists(path))
+        {
+            state.ClearQuickSave();
+            return;
+        }
+
+        DateTime lastWriteTimeUtc = File.GetLastWriteTimeUtc(path);
+        if (state.HasQuickSave && state.QuickSaveLastWriteTimeUtc == lastWriteTimeUtc)
+            return;
+
+        state.HasQuickSave = true;
+        state.QuickSaveLastWriteTimeUtc = lastWriteTimeUtc;
+        state.QuickSaveDetails = ReadQuickSaveDetails(path);
+    }
+
+    private QuickSaveDetails? ReadQuickSaveDetails(string path)
+    {
+        try
+        {
+            XDocument doc = XDocument.Load(path, LoadOptions.None);
+
+            if (!int.TryParse(GetElementValue(doc, "dayOfMonth"), out int day)
+                || !int.TryParse(GetElementValue(doc, "year"), out int year))
+            {
+                return null;
+            }
+
+            string? season = GetElementValue(doc, "currentSeason");
+            XElement? extraDataItem = doc.Descendants()
+                .FirstOrDefault(p => p.Name.LocalName == "string" && p.Value == QuickSaveExtraDataKey)
+                ?.Ancestors()
+                .FirstOrDefault(p => p.Name.LocalName == "item");
+
+            string? extraDataJson = extraDataItem?
+                .Elements()
+                .FirstOrDefault(p => p.Name.LocalName == "value")?
+                .Descendants()
+                .FirstOrDefault(p => p.Name.LocalName == "string")?
+                .Value;
+
+            if (string.IsNullOrWhiteSpace(season) || string.IsNullOrWhiteSpace(extraDataJson))
+                return null;
+
+            using JsonDocument extraData = JsonDocument.Parse(extraDataJson);
+            if (!extraData.RootElement.TryGetProperty("TimeOfDay", out JsonElement timeElement)
+                || !timeElement.TryGetInt32(out int timeOfDay))
+            {
+                return null;
+            }
+
+            return new QuickSaveDetails(day, season, year, timeOfDay);
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.LogOnce($"Couldn't read QuickSave details from '{path}': {ex.Message}", LogLevel.Warn);
+            return null;
         }
     }
 
@@ -446,5 +530,36 @@ public sealed class ModEntry : Mod
         public string? SaveFolder { get; }
         public string SaveFolderName => this.SaveFolder is null ? "unknown save" : Path.GetFileName(this.SaveFolder);
         public bool HasQuickSave { get; set; }
+        public DateTime? QuickSaveLastWriteTimeUtc { get; set; }
+        public QuickSaveDetails? QuickSaveDetails { get; set; }
+
+        public void ClearQuickSave()
+        {
+            this.HasQuickSave = false;
+            this.QuickSaveLastWriteTimeUtc = null;
+            this.QuickSaveDetails = null;
+        }
+    }
+
+    private sealed class QuickSaveDetails
+    {
+        public QuickSaveDetails(int day, string season, int year, int timeOfDay)
+        {
+            this.Day = day;
+            this.Season = season;
+            this.Year = year;
+            this.TimeOfDay = timeOfDay;
+        }
+
+        public int Day { get; }
+        public string Season { get; }
+        public int Year { get; }
+        public int TimeOfDay { get; }
+
+        public string GetDisplayText()
+        {
+            string season = char.ToUpperInvariant(this.Season[0]) + this.Season[1..];
+            return $"{season} {this.Day}, Year {this.Year} at {Game1.getTimeOfDayString(this.TimeOfDay)}";
+        }
     }
 }

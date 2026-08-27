@@ -7,6 +7,7 @@ A small SMAPI companion mod for **DLX.QuickSave**. It adds a `QS` button beside 
 - Normal click on a save slot: unchanged vanilla behavior.
 - `QS` button enabled: that farm has a `Quicksave` midday save.
 - `QS` button disabled/gray: no midday QuickSave was found for that farm.
+- Hovering an enabled `QS` button shows the QuickSave's season, day, year, and time of day.
 - Clicking enabled `QS`:
   1. starts Stardew's normal load for that farm;
   2. waits until the save is initialized and QuickSave's normal load guards allow loading;

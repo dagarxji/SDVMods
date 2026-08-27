@@ -4,10 +4,10 @@ A Stardew Valley 1.6 / SMAPI mod for quickly deciding whether an inventory item 
 
 ## Compact hover panel
 
-The panel is deliberately fixed-size for fast inventory scanning. It shows, in this order:
+The panel is deliberately fixed-size and anchored to the bottom-left of the screen so it doesn't compete with Stardew's cursor tooltip. Each row has a game-native icon for quick scanning. It shows, in this order:
 
 1. **Loves** — up to 5 NPC names, comma-delimited.
-2. **Community Center** — `Needed` only when that item/quality still satisfies an unfinished ingredient in the *current save's generated bundle set*.
+2. **CC** — `Needed` only when that item/quality still satisfies an unfinished Community Center ingredient in the *current save's generated bundle set*.
 3. **Museum** — `Needed` only when the item is museum-donatable and hasn't been donated yet.
 4. **Quest / order** — `Needed` for active item-delivery/lost-item quests and active Special Order donate, ship, deliver, or gift objectives which can use an item already in inventory. Collect/fish objectives are intentionally excluded because those require newly obtained items.
 5. **Crafting** — Yes/No. This scans all currently loaded crafting recipes, including content-patched recipes, not cooking recipes.
@@ -22,9 +22,10 @@ The expanded view adds:
 
 - More NPCs who love the item (default cap: 20).
 - Active quest/order names when relevant.
-- Crafting recipe names and required amount.
+- Crafting uses as ingredient-count → crafted-item icon flows, followed by the recipe name.
 - Profitable deterministic machine-processing routes from `Data/Machines`.
-- Machine values for Normal / Silver / Gold / Iridium input quality when the machine accepts those qualities.
+- Machine routes as machine + input/extra-ingredient → finished-product icon flows.
+- Compact values for Normal / Silver / Gold / Iridium input quality when the machine accepts those qualities.
 - Each machine value shows processed sell value and the gain versus selling the required raw input. Extra consumed inputs (for example coal) are included in the comparison when the installed game version declares them in machine data.
 
 Example machine line:
@@ -102,6 +103,6 @@ SMAPI generates `config.json` after launch. Useful values:
 
 ## Notes for this first build
 
-The native game's deepest `IClickableMenu.drawHoverText` overload is Harmony-patched after it draws a normal item tooltip. This gives broad coverage across the inventory, chests, shops, and other standard menus without replacing those menus or Lookup Anything. Inventory Insight prefers the left side of the cursor so Stardew's normal tooltip remains visible beside it.
+The native game's deepest `IClickableMenu.drawHoverText` overload is Harmony-patched after it draws a normal item tooltip. This gives broad coverage across the inventory, chests, shops, and other standard menus without replacing those menus or Lookup Anything. Inventory Insight stays at the bottom-left of the screen while Stardew's normal tooltip remains beside the cursor.
 
 The compact panel never wraps row values. Long values are ellipsized so every hovered item keeps the same panel size and row positions.

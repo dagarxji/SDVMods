@@ -291,7 +291,7 @@ internal sealed class ItemAnalyzer
                 {
                     if (CraftingRecipe.ItemMatchesForCrafting(item, ingredientId))
                     {
-                        uses.Add(new CraftingUse(recipe.DisplayName, count));
+                        uses.Add(new CraftingUse(recipe.DisplayName, recipe.createItem().QualifiedItemId, count));
                         break;
                     }
                 }
@@ -332,6 +332,7 @@ internal sealed class ItemAnalyzer
 
             List<QualityValue> qualityValues = new();
             string? outputName = null;
+            string? outputItemId = null;
             int requiredInputCount = 1;
             bool foundAnyQuality = false;
 
@@ -385,14 +386,15 @@ internal sealed class ItemAnalyzer
                 int processed = Math.Max(0, output.sellToStorePrice(-1L)) * Math.Max(1, output.Stack);
                 qualityValues.Add(new QualityValue(quality, raw, processed));
                 outputName ??= output.DisplayName;
+                outputItemId ??= output.QualifiedItemId;
                 foundAnyQuality = true;
             }
 
-            if (!foundAnyQuality || qualityValues.Count == 0 || outputName is null)
+            if (!foundAnyQuality || qualityValues.Count == 0 || outputName is null || outputItemId is null)
                 continue;
 
-            int extrasCost = GetAdditionalConsumedValue(machineData);
-            MachineRoute route = new(machine.DisplayName, outputName, requiredInputCount, extrasCost, qualityValues);
+            IReadOnlyList<ConsumedItem> additionalInputs = GetAdditionalConsumedItems(machineData);
+            MachineRoute route = new(machine.QualifiedItemId, machine.DisplayName, outputItemId, outputName, requiredInputCount, additionalInputs, qualityValues);
             if (route.IsProfitable)
                 routes.Add(route);
         }
@@ -433,15 +435,15 @@ internal sealed class ItemAnalyzer
         return !id.Contains(' ');
     }
 
-    private static int GetAdditionalConsumedValue(MachineData data)
+    private static IReadOnlyList<ConsumedItem> GetAdditionalConsumedItems(MachineData data)
     {
         // Stardew 1.6.16 adds MachineData.AdditionalConsumedItems. Keep this source buildable against
         // 1.6.15 too by reading that newer field reflectively when it exists.
         var field = typeof(MachineData).GetField("AdditionalConsumedItems");
         if (field?.GetValue(data) is not System.Collections.IEnumerable extras)
-            return 0;
+            return Array.Empty<ConsumedItem>();
 
-        int total = 0;
+        List<ConsumedItem> items = new();
         foreach (object? extra in extras)
         {
             if (extra is null)
@@ -459,10 +461,14 @@ internal sealed class ItemAnalyzer
 
             Item? consumed = ItemRegistry.Create(itemId, allowNull: true);
             if (consumed is not null)
-                total += Math.Max(0, consumed.sellToStorePrice(-1L)) * Math.Max(1, requiredCount);
+            {
+                int quantity = Math.Max(1, requiredCount);
+                int value = Math.Max(0, consumed.sellToStorePrice(-1L)) * quantity;
+                items.Add(new ConsumedItem(consumed.QualifiedItemId, quantity, value));
+            }
         }
 
-        return total;
+        return items;
     }
 
     private static string GetVariantCacheKey(Item item)

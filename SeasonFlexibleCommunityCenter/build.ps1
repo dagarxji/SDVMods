@@ -4,6 +4,7 @@ $ErrorActionPreference = 'Stop'
 $modRoot = $PSScriptRoot
 $projectDir = Join-Path $modRoot 'src\SeasonFlexibleCommunityCenter'
 $projectFile = Join-Path $projectDir 'SeasonFlexibleCommunityCenter.csproj'
+$targetFramework = 'net6.0'
 
 Write-Host 'Season-Flexible Community Center - Windows build'
 Write-Host '-----------------------------------------------'
@@ -52,7 +53,7 @@ try {
 
     Write-Host ''
     Write-Host 'BUILD SUCCEEDED.' -ForegroundColor Green
-    Write-Host "Check '$projectDir\bin\Release\net6.0' for the compiled output/release package."
+    Write-Host "Check '$projectDir\bin\Release\$targetFramework' for the compiled output/release package."
 }
 catch {
     Write-Host ''

@@ -5,24 +5,19 @@ $modRoot = $PSScriptRoot
 $projectDir = Join-Path $modRoot 'src\SeasonFlexibleCommunityCenter'
 $projectFile = Join-Path $projectDir 'SeasonFlexibleCommunityCenter.csproj'
 
-function Exit-Build {
-    param([int]$ExitCode)
-    exit $ExitCode
-}
-
 Write-Host 'Season-Flexible Community Center - Windows build'
 Write-Host '-----------------------------------------------'
 
 if (-not (Test-Path -LiteralPath $projectFile)) {
     Write-Error "Project file not found: $projectFile"
-    Exit-Build 1
+    exit 1
 }
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Write-Host ''
     Write-Host 'ERROR: .NET SDK was not found in PATH.' -ForegroundColor Red
     Write-Host 'Install the required .NET SDK (or build the project in Visual Studio/Rider), then run this script again.'
-    Exit-Build 1
+    exit 1
 }
 
 Push-Location $projectDir
@@ -38,7 +33,7 @@ try {
         Write-Host ''
         Write-Host 'BUILD FAILED.' -ForegroundColor Red
         Write-Host "dotnet restore exited with code $restoreExitCode."
-        Exit-Build $restoreExitCode
+        exit $restoreExitCode
     }
 
     Write-Host ''
@@ -52,21 +47,21 @@ try {
         Write-Host 'BUILD FAILED.' -ForegroundColor Red
         Write-Host "dotnet build exited with code $buildExitCode."
         Write-Host "If Stardew Valley wasn't detected, configure GamePath in Directory.Build.props."
-        Exit-Build $buildExitCode
+        exit $buildExitCode
     }
 
     Write-Host ''
     Write-Host 'BUILD SUCCEEDED.' -ForegroundColor Green
-    Write-Host "Check '$projectDir\bin' for the compiled output/release package."
+    Write-Host "Check '$projectDir\bin\Release\net6.0' for the compiled output/release package."
 }
 catch {
     Write-Host ''
     Write-Host 'BUILD FAILED.' -ForegroundColor Red
     Write-Host $_.Exception.Message
-    Exit-Build 1
+    exit 1
 }
 finally {
     Pop-Location
 }
 
-Exit-Build 0
+exit 0

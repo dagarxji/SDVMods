@@ -11,6 +11,7 @@ A single repository containing all of my Stardew Valley SMAPI mods. Each mod liv
 | [CrowdedTrees](./CrowdedTrees) | Crowded Wild Trees | Allow trees next to each other. |
 | [FishingForecast](./FishingForecast) | Fishing Forecast | Shows best fishing locations for the day. |
 | [RemoteGifts](./RemoteGifts) | Remote Social Interactions | Remotely interact with NPCs. |
+| [SeasonFlexibleCommunityCenter](./SeasonFlexibleCommunityCenter) | Season-Flexible Community Center | Allows scaled current-season substitutions for future-season Community Center requirements. |
 
 ## Building
 

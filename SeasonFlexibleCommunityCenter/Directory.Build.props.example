@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup>
+    <!-- Uncomment and edit if Stardew.ModBuildConfig can't auto-detect your game. -->
+    <!-- <GamePath>C:\Program Files (x86)\Steam\steamapps\common\Stardew Valley</GamePath> -->
+  </PropertyGroup>
+</Project>

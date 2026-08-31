@@ -1,0 +1,16 @@
+{
+  "Name": "Season-Flexible Community Center",
+  "Author": "SeasonFlexibleCC",
+  "Version": "1.0.0",
+  "Description": "Trade currently obtainable seasonal items at scaled quantities to satisfy future-season Community Center bundle requirements.",
+  "UniqueID": "FlexibleCC.SeasonFlexibleCommunityCenter",
+  "EntryDll": "SeasonFlexibleCommunityCenter.dll",
+  "MinimumApiVersion": "4.4.0",
+  "Dependencies": [
+    {
+      "UniqueID": "spacechase0.GenericModConfigMenu",
+      "IsRequired": false
+    }
+  ],
+  "UpdateKeys": []
+}

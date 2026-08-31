@@ -18,6 +18,12 @@ dotnet restore
 dotnet build -c Release
 ```
 
+Or from the mod directory on Windows PowerShell:
+
+```powershell
+.\build.ps1
+```
+
 On a normal Stardew development setup, Stardew.ModBuildConfig will also deploy the mod to your Mods folder and generate a release ZIP under the project's `bin/Release/net6.0/` directory.
 
 ## If the game path isn't detected

@@ -1,0 +1,78 @@
+param(
+    [switch]$NoPause
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+
+$modRoot = $PSScriptRoot
+$projectDir = Join-Path $modRoot 'src\SeasonFlexibleCommunityCenter'
+$projectFile = Join-Path $projectDir 'SeasonFlexibleCommunityCenter.csproj'
+
+function Exit-Build {
+    param([int]$ExitCode)
+
+
+    exit $ExitCode
+}
+
+Write-Host 'Season-Flexible Community Center - Windows build'
+Write-Host '-----------------------------------------------'
+
+if (-not (Test-Path -LiteralPath $projectFile)) {
+    Write-Error "Project file not found: $projectFile"
+    Exit-Build 1
+}
+
+if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+    Write-Host ''
+    Write-Host 'ERROR: .NET SDK was not found in PATH.' -ForegroundColor Red
+    Write-Host 'Install the .NET 6 SDK (or build the project in Visual Studio/Rider), then run this script again.'
+    Exit-Build 1
+}
+
+Push-Location $projectDir
+try {
+    Write-Host ''
+    Write-Host "Using: $(dotnet --version)"
+    Write-Host 'Restoring dependencies...'
+    Write-Host ''
+    & dotnet restore $projectFile
+    $restoreExitCode = $LASTEXITCODE
+
+    if ($restoreExitCode -ne 0) {
+        Write-Host ''
+        Write-Host 'BUILD FAILED.' -ForegroundColor Red
+        Write-Host "dotnet restore exited with code $restoreExitCode."
+        Exit-Build $restoreExitCode
+    }
+
+    Write-Host ''
+    Write-Host 'Building Release configuration...'
+    Write-Host ''
+    & dotnet build $projectFile -c Release
+    $buildExitCode = $LASTEXITCODE
+
+    if ($buildExitCode -ne 0) {
+        Write-Host ''
+        Write-Host 'BUILD FAILED.' -ForegroundColor Red
+        Write-Host "dotnet build exited with code $buildExitCode."
+        Write-Host "If Stardew Valley wasn't detected, configure GamePath in Directory.Build.props."
+        Exit-Build $buildExitCode
+    }
+
+    Write-Host ''
+    Write-Host 'BUILD SUCCEEDED.' -ForegroundColor Green
+    Write-Host "Check '$projectDir\bin' for the compiled output/release package."
+}
+catch {
+    Write-Host ''
+    Write-Host 'BUILD FAILED.' -ForegroundColor Red
+    Write-Host $_.Exception.Message
+    Exit-Build 1
+}
+finally {
+    Pop-Location
+}
+
+Exit-Build 0

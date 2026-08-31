@@ -21,7 +21,7 @@ if (-not (Test-Path -LiteralPath $projectFile)) {
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     Write-Host ''
     Write-Host 'ERROR: .NET SDK was not found in PATH.' -ForegroundColor Red
-    Write-Host 'Install the .NET 6 SDK (or build the project in Visual Studio/Rider), then run this script again.'
+    Write-Host 'Install the required .NET SDK (or build the project in Visual Studio/Rider), then run this script again.'
     Exit-Build 1
 }
 
@@ -44,7 +44,7 @@ try {
     Write-Host ''
     Write-Host 'Building Release configuration...'
     Write-Host ''
-    & dotnet build $projectFile -c Release
+    & dotnet build $projectFile -c Release --no-restore
     $buildExitCode = $LASTEXITCODE
 
     if ($buildExitCode -ne 0) {

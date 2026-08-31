@@ -1,7 +1,3 @@
-param(
-    [switch]$NoPause
-)
-
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -11,8 +7,6 @@ $projectFile = Join-Path $projectDir 'SeasonFlexibleCommunityCenter.csproj'
 
 function Exit-Build {
     param([int]$ExitCode)
-
-
     exit $ExitCode
 }
 

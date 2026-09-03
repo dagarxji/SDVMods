@@ -48,6 +48,15 @@ internal sealed class SeasonCatalog
         return Items.TryGetValue(itemId, out info!);
     }
 
+    public IEnumerable<(string Id, ItemSeasonInfo Info)> GetItems(ItemKind kind, string season)
+    {
+        foreach ((string id, ItemSeasonInfo info) in Items)
+        {
+            if (info.Kinds.HasFlag(kind) && info.Seasons.Contains(season))
+                yield return (id, info);
+        }
+    }
+
     public static string NormalizeObjectId(string? id)
     {
         if (string.IsNullOrWhiteSpace(id))

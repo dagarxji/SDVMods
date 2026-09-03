@@ -1,6 +1,0 @@
-**/bin/
-**/obj/
-Directory.Build.props
-*.user
-*.suo
-*.zip

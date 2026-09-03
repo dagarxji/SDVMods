@@ -2,7 +2,7 @@ using StardewModdingAPI;
 
 namespace SeasonFlexibleCommunityCenter.Framework;
 
-internal interface IGenericModConfigMenuApi
+public interface IGenericModConfigMenuApi
 {
     void Register(IManifest mod, Action reset, Action save, bool titleScreenOnly = false);
     void AddSectionTitle(IManifest mod, Func<string> text, Func<string>? tooltip = null);

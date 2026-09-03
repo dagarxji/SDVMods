@@ -6,11 +6,11 @@ Instead of changing what grows or can be caught in each season, the mod lets you
 
 ## Example
 
-With the default **Balanced** preset, the season penalty is ×2 per season ahead:
+With the default **Balanced** preset, the season penalty is ×10 per season ahead:
 
-- Summer requirement while it is Spring: base ×2.
-- Fall requirement while it is Spring: base ×4.
-- Winter requirement while it is Spring: base ×8.
+- Summer requirement while it is Spring: base ×10.
+- Fall requirement while it is Spring: base ×100.
+- Winter requirement while it is Spring: base ×1000.
 
 The final quantity is then adjusted for the original item's sell value, the substitute's sell value, and the substitute's quality.
 
@@ -35,6 +35,8 @@ So a cheap Spring crop can replace a Fall crop, but it may take a substantial st
 - Multiplayer settings sync: host settings are authoritative.
 - Expansion/content-pack aware seasonal catalog.
 - Manual compatibility overrides for unusual custom item frameworks.
+- Lists every valid current-season substitute, with items in the backpack shown first.
+- Supports bundle menus opened outside the Community Center by bundle-access mods.
 
 ## How to use in game
 
@@ -72,7 +74,7 @@ The substitute's credited value can include some or all of its quality premium d
 | Preset | Season penalty | Value scaling | Quality credit |
 |---|---:|---:|---:|
 | Relaxed | ×1.5 / season | 70% | 100% |
-| Balanced | ×2 / season | 100% | 100% |
+| Balanced | ×10 / season | 100% | 100% |
 | Challenging | ×2.5 / season | 100% | 75% |
 
 All values can be customized.
@@ -83,7 +85,7 @@ While Stardew's character/farm creation screen is open, the mod overlays a **Sea
 
 If that creation-screen setup is skipped or unavailable, a fallback configuration window opens on **Spring 1, Year 1** once the intro/event sequence has finished and normal player input is available. The title-screen GMCM page controls the defaults used by both paths.
 
-For an existing farm, the mod initializes the default Balanced settings without forcing the first-time setup window.
+For an existing farm, the mod initializes the default Balanced settings (×10 per season) without forcing the first-time setup window.
 
 You can reopen the per-farm setup screen from the SMAPI console with:
 

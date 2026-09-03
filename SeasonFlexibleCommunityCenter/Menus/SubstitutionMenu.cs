@@ -147,7 +147,8 @@ internal sealed class SubstitutionMenu : IClickableMenu
 
     public override void draw(SpriteBatch b)
     {
-        b.Draw(Game1.fadeToBlackRect, Game1.uiViewport.Bounds, Color.Black * 0.72f);
+        Rectangle viewport = new(Game1.uiViewport.X, Game1.uiViewport.Y, Game1.uiViewport.Width, Game1.uiViewport.Height);
+        b.Draw(Game1.fadeToBlackRect, viewport, Color.Black * 0.72f);
         Ui.DrawBox(b, new Rectangle(xPositionOnScreen, yPositionOnScreen, width, height));
 
         Utility.drawTextWithShadow(b, "Season Exchange", Game1.dialogueFont,

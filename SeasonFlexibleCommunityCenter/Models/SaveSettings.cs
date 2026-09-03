@@ -4,8 +4,8 @@ public sealed class SaveSettings
 {
     public bool SetupComplete { get; set; }
 
-    /// <summary>100 = no seasonal penalty, 200 = x2 per season early, 300 = x3 per season early.</summary>
-    public int SeasonPenaltyPercent { get; set; } = 200;
+    /// <summary>100 = no seasonal penalty, 2000 = x20 per season early.</summary>
+    public int SeasonPenaltyPercent { get; set; } = 1000;
 
     /// <summary>How strongly sell-price differences affect the exchange quantity.</summary>
     public int ValueScalingPercent { get; set; } = 100;
@@ -37,7 +37,7 @@ public sealed class SaveSettings
 
     public void Validate()
     {
-        SeasonPenaltyPercent = Math.Clamp(SeasonPenaltyPercent, 100, 400);
+        SeasonPenaltyPercent = Math.Clamp(SeasonPenaltyPercent, 100, 2000);
         ValueScalingPercent = Math.Clamp(ValueScalingPercent, 0, 100);
         QualityCreditPercent = Math.Clamp(QualityCreditPercent, 0, 100);
         MinimumQuantity = Math.Clamp(MinimumQuantity, 1, 999);
@@ -59,7 +59,7 @@ public sealed class SaveSettings
                 QualityCreditPercent = 75;
                 break;
             default:
-                SeasonPenaltyPercent = 200;
+                SeasonPenaltyPercent = 1000;
                 ValueScalingPercent = 100;
                 QualityCreditPercent = 100;
                 break;

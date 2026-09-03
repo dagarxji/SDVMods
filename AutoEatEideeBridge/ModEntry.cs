@@ -881,8 +881,8 @@ internal sealed class ModEntry : Mod
         if (!_timeSpeedIntegrationReady || _timeSpeedInstance is null || _timeSpeedConfigField is null || _timeSpeedUpdateSettingsMethod is null)
             return;
 
-        // Only the host actually drives the flow of time; touching TimeSpeed's config elsewhere would have no effect.
-        if (!Context.IsWorldReady || !Context.IsMainPlayer)
+        // TimeSpeed lets farmhands control time too when enabled, so don't restrict this to the host.
+        if (!Context.IsWorldReady)
             return;
 
         object? config = _timeSpeedConfigField.GetValue(_timeSpeedInstance);
@@ -925,15 +925,20 @@ internal sealed class ModEntry : Mod
             );
         }
 
-        bool isFishing = Game1.player.CurrentTool is FishingRod;
-        bool shouldSync = _config.SyncTimeSpeedWithFishingSpeed && isFishing;
+        // Only slow time while a cast is actually happening: either the rod is in use (cast through
+        // catch), or Eidee's Auto Recast is armed so another cast is coming. Simply holding the rod
+        // shouldn't affect the flow of time.
+        // In multiplayer the flow of time is shared, so scale the effect by the share of players who
+        // are fishing: e.g. a 4x multiplier with one of two players fishing becomes 2x.
+        double fishingShare = GetFishingPlayerShare();
+        bool shouldSync = _config.SyncTimeSpeedWithFishingSpeed && fishingShare > 0;
 
         double divisor = 1d;
         if (shouldSync)
         {
-            float multiplier = GetFishingAnimationMultiplier();
+            double multiplier = GetFishingAnimationMultiplier() * fishingShare;
             double strength = Math.Clamp(_config.TimeSpeedSyncStrengthPercent / 100d, 0, 1);
-            divisor = 1 + (multiplier - 1) * strength;
+            divisor = Math.Max(1d, 1 + (multiplier - 1) * strength);
         }
 
         if (_lastAppliedTimeSpeedDivisor.HasValue && Math.Abs(_lastAppliedTimeSpeedDivisor.Value - divisor) < DivisorEpsilon)
@@ -954,6 +959,38 @@ internal sealed class ModEntry : Mod
 
         _timeSpeedUpdateSettingsMethod.Invoke(_timeSpeedInstance, new object?[] { Game1.currentLocation });
         _lastAppliedTimeSpeedDivisor = divisor;
+    }
+
+    /// <summary>Get the share of online players currently casting (0 when nobody is fishing, 1 when everyone is).</summary>
+    private double GetFishingPlayerShare()
+    {
+        int total = 0;
+        int fishing = 0;
+
+        foreach (Farmer farmer in Game1.getOnlineFarmers())
+        {
+            total++;
+            if (IsPlayerCasting(farmer))
+                fishing++;
+        }
+
+        if (total == 0)
+            return 0;
+
+        return (double)fishing / total;
+    }
+
+    /// <summary>Whether the given player is mid-cast, or has an armed auto-recast that will cast again shortly.</summary>
+    private bool IsPlayerCasting(Farmer farmer)
+    {
+        if (farmer.CurrentTool is not FishingRod rod)
+            return false;
+
+        // Eidee's state is only readable for the local player; remote players are judged by synced net fields.
+        if (farmer.IsLocalPlayer)
+            return rod.inUse() || IsAutoRecastArmed(rod);
+
+        return farmer.UsingTool || rod.isFishing || rod.castedButBobberStillInAir || rod.isCasting || rod.isReeling;
     }
 
     /// <summary>Restore TimeSpeed's original seconds-per-minute settings, e.g. when returning to the title screen.</summary>
@@ -1031,7 +1068,7 @@ internal sealed class ModEntry : Mod
             getValue: () => _config.SyncTimeSpeedWithFishingSpeed,
             setValue: value => _config.SyncTimeSpeedWithFishingSpeed = value,
             name: () => "Sync time speed with fishing animation",
-            tooltip: () => "Requires TimeSpeed. While you have a fishing rod out, divides TimeSpeed's seconds-per-minute settings by the current fishing animation speed multiplier, so faster fishing doesn't also grant extra time in the day."
+            tooltip: () => "Requires TimeSpeed. While you're actually casting (or autocast is running), divides TimeSpeed's seconds-per-minute settings by the current fishing animation speed multiplier, so faster fishing doesn't also grant extra time in the day. In multiplayer the effect is scaled by how many players are fishing (e.g. 4x with 1 of 2 players fishing acts as 2x)."
         );
         api.AddNumberOption(
             ModManifest,

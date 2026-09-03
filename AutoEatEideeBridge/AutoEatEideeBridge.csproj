@@ -3,7 +3,7 @@
   <PropertyGroup>
     <AssemblyName>AutoEatEideeBridge</AssemblyName>
     <RootNamespace>AutoEatEideeBridge</RootNamespace>
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <TargetFramework>net6.0</TargetFramework>
     <Nullable>enable</Nullable>
     <LangVersion>10.0</LangVersion>

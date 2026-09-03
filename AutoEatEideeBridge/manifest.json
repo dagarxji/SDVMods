@@ -1,8 +1,8 @@
 {
   "Name": "Auto-Eat + Eidee Easy Fishing Bridge",
   "Author": "Local",
-  "Version": "1.4.0",
-  "Description": "Resumes Eidee Auto Recast after Auto-Eat, tracks fishing stats, and manages a level-scaled daily catch cap.",
+  "Version": "1.5.0",
+  "Description": "Resumes Eidee Auto Recast after Auto-Eat, tracks fishing stats, and syncs Fast Animations' fishing speed and TimeSpeed's flow of time with fishing/mastery level.",
   "UniqueID": "Local.AutoEatEideeBridge",
   "EntryDll": "AutoEatEideeBridge.dll",
   "MinimumApiVersion": "4.0.0",
@@ -17,6 +17,14 @@
       "UniqueID": "Permamiss.AutoEat",
       "IsRequired": true,
       "MinimumVersion": "2.3.3"
+    },
+    {
+      "UniqueID": "Pathoschild.FastAnimations",
+      "IsRequired": false
+    },
+    {
+      "UniqueID": "cantorsdust.TimeSpeed",
+      "IsRequired": false
     }
   ]
 }

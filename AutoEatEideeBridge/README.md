@@ -5,6 +5,12 @@ A tiny SMAPI compatibility mod for:
 - **Eidee Easy Fishing** 1.4.0+ (`net.eidee.stardew_valley.easy_fishing`)
 - **Auto-Eat** 2.3.3+ (`Permamiss.AutoEat`)
 
+It also optionally syncs fishing/mastery progression with two other mods if
+they're installed:
+
+- **Fast Animations** (`Pathoschild.FastAnimations`)
+- **TimeSpeed** (`cantorsdust.TimeSpeed`)
+
 ## What it fixes
 
 Eidee Easy Fishing's Auto Recast can dispatch a cast and set its internal
@@ -40,20 +46,47 @@ The tracker can be shown or hidden with `F8` by default, or with a keybinding
 configured through Generic Mod Config Menu. Hold `Shift` and left-click-drag
 the tracker to move it; its position is saved automatically.
 
-The daily fish catch cap is the maximum at fishing level 10. The active cap is
-one tenth of that maximum per fishing level (for example, the default maximum
-of 500 gives a cap of 50 at level 1, 100 at level 2, and 500 at level 10).
-Setting the maximum to 0 disables the cap.
-
 Generic Mod Config Menu also includes an **Automatically delete fishing
 trash** option. When enabled, caught trash and Joja Cola are removed instead
 of being kept in the farmer's inventory. Algae and seaweed are preserved.
 
-At base fishing level 10, every fish caught has a 0.1% chance to drop an
-**Angler's Seal**. It cannot drop below level 10, and temporary fishing buffs
-do not bypass that requirement. Hold the seal and use it with the action or
-tool button to permanently remove the daily catch cap for that farmer. The
-unlock is stored in the save, and the seal stops dropping once it is used.
+## Fishing speed sync (Fast Animations + TimeSpeed)
+
+If [Fast Animations](https://www.nexusmods.com/stardewvalley/mods/1089) and/or
+[TimeSpeed](https://www.nexusmods.com/stardewvalley/mods/169) are installed,
+this bridge can balance out how fast fishing becomes as you progress, so
+higher fishing/mastery levels don't also grant a disproportionate amount of
+extra time in the day. Both mods are optional; each sync feature below is
+skipped if its corresponding mod isn't installed.
+
+**Sync fishing animation speed with level/mastery** (enabled by default)
+continuously sets Fast Animations' fishing speed multiplier from:
+
+- 1x base
+- +1x per fishing level, 0-10
+- +1x for each of the other four skills (farming, mining, foraging, combat)
+  that has reached level 10, up to +4x
+- +1x per mastery level claimed in the Mastery Cave, up to +5x
+
+This reaches 11x once fishing alone is maxed, 15x once every skill is level
+10, and the full 20x once every mastery has also been claimed. When disabled,
+Fast Animations' fishing speed is left at whatever value is configured in its
+own settings.
+
+**Sync time speed with fishing animation** (enabled by default) divides
+TimeSpeed's seconds-per-minute settings (indoors, outdoors, mines, Skull
+Cavern, and the Volcano Dungeon) by the current fishing animation speed
+multiplier while a fishing rod is out, then restores TimeSpeed's original
+values as soon as the rod is put away. For example, with TimeSpeed's default
+0.7 seconds/minute outdoors, a 2x fishing animation speed becomes 0.35
+seconds/minute, and the full 20x becomes 0.035 seconds/minute. This only
+applies for the host player, since TimeSpeed only lets the host directly
+control the flow of time.
+
+The **Time speed sync strength** slider (0-100%, default 100%) controls how
+closely the two are tied together. At 100%, the relationship above applies
+exactly. At 0%, TimeSpeed is left completely unaffected. Values in between
+partially soften the effect.
 
 ## Important stamina setting
 
@@ -112,4 +145,7 @@ Re-armed Eidee Auto Recast after Auto-Eat finished eating.
 ```
 
 If either upstream mod changes the private methods/fields this bridge relies on,
-it fails closed and prints a clear error instead of blindly altering state.
+it fails closed and prints a clear error instead of blindly altering state. The
+same applies separately to the optional Fast Animations/TimeSpeed sync: if
+either mod's internals change, that specific sync feature logs a warning and is
+disabled, without affecting the Auto-Eat/Eidee bridge or the other sync feature.

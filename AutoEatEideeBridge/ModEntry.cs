@@ -8,7 +8,6 @@ using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
-using StardewValley.GameData.Objects;
 using StardewValley.Menus;
 using StardewValley.Tools;
 
@@ -26,8 +25,8 @@ namespace AutoEatEideeBridge;
 /// state. Eidee itself performs the next cast, so its normal speed, full-power cast,
 /// stop-time, fishability, and stamina safeguards remain in control.
 ///
-/// It also tracks fishing rate/gold stats and enforces an optional daily fish catch
-/// cap: once reached, it stops re-arming Auto Recast after Auto-Eat interrupts it.
+/// It also tracks fishing rate/gold stats, and optionally keeps Fast Animations'
+/// fishing speed and TimeSpeed's flow of time in sync with fishing/mastery level.
 /// </summary>
 internal sealed class ModEntry : Mod
 {
@@ -35,6 +34,8 @@ internal sealed class ModEntry : Mod
 
     private const string EideeTypeName = "EideeEasyFishing.ModEntry";
     private const string AutoEatTypeName = "AutoEat.ModEntry";
+    private const string FastAnimationsTypeName = "Pathoschild.Stardew.FastAnimations.ModEntry";
+    private const string TimeSpeedTypeName = "TimeSpeed.ModEntry";
 
     // Don't leave a stale pending resume around indefinitely if another mod changes state.
     private const long PendingTimeoutTicks = 600; // ~10 seconds at Stardew's normal 60 ticks/sec.
@@ -45,10 +46,13 @@ internal sealed class ModEntry : Mod
     private const int TrackerPadding = 22;
     private const double StatsRefreshIntervalSeconds = 5d;
     private const string GenericModConfigMenuId = "spacechase0.GenericModConfigMenu";
-    private const string CapRemovalItemId = "Local.AutoEatEideeBridge_AnglersSeal";
-    private const string QualifiedCapRemovalItemId = "(O)" + CapRemovalItemId;
-    private const string CapRemovedModDataKey = "Local.AutoEatEideeBridge/DailyCapRemoved";
-    private const double CapRemovalItemDropChance = 0.001d;
+
+    // 1x base + up to 10x for fishing level + up to 4x for the other four skills reaching level 10
+    // + up to 5x for mastery level = 20x at full fishing/mastery progress.
+    private const int MaxOtherSkillsAtMax = 4;
+    private const int MaxMasteryLevel = 5;
+    private const float SpeedEpsilon = 0.001f;
+    private const double DivisorEpsilon = 0.0001d;
 
     private static ModEntry? Instance;
 
@@ -92,13 +96,36 @@ internal sealed class ModEntry : Mod
     private int _trackerHeight = TrackerMinHeight;
 
     private int _fishCaughtAtDayStart;
-    private bool _dailyCapNotified;
     private double _lastStatsRefreshRealSeconds;
     private double _cachedFishPerHour;
     private double _cachedGoldPerHourSession;
     private double _lastGoldPerHour;
     private int _sessionGoldEarned;
     private int _dayGoldEarned;
+
+    private bool _fastAnimationsIntegrationReady;
+    private object? _fastAnimationsInstance;
+    private FieldInfo? _fastAnimationsConfigField;
+    private MethodInfo? _fastAnimationsUpdateConfigMethod;
+    private PropertyInfo? _fastAnimationsFishingSpeedProperty;
+    private float? _fastAnimationsBaselineFishingSpeed;
+    private float? _lastAppliedFishingAnimationSpeed;
+
+    private readonly record struct TimeSpeedBaseline(double Outdoors, double Indoors, double Mines, double SkullCavern, double VolcanoDungeon, Dictionary<string, double> ByLocationName);
+
+    private bool _timeSpeedIntegrationReady;
+    private object? _timeSpeedInstance;
+    private FieldInfo? _timeSpeedConfigField;
+    private MethodInfo? _timeSpeedUpdateSettingsMethod;
+    private PropertyInfo? _timeSpeedSecondsPerMinuteProperty;
+    private PropertyInfo? _timeSpeedOutdoorsProperty;
+    private PropertyInfo? _timeSpeedIndoorsProperty;
+    private PropertyInfo? _timeSpeedMinesProperty;
+    private PropertyInfo? _timeSpeedSkullCavernProperty;
+    private PropertyInfo? _timeSpeedVolcanoDungeonProperty;
+    private PropertyInfo? _timeSpeedByLocationNameProperty;
+    private TimeSpeedBaseline? _timeSpeedBaseline;
+    private double? _lastAppliedTimeSpeedDivisor;
 
     public override void Entry(IModHelper helper)
     {
@@ -112,29 +139,6 @@ internal sealed class ModEntry : Mod
         helper.Events.Player.Warped += OnWarped;
         helper.Events.Display.RenderedHud += OnRenderedHud;
         helper.Events.Input.ButtonPressed += OnButtonPressed;
-        helper.Events.Content.AssetRequested += OnAssetRequested;
-    }
-
-    private void OnAssetRequested(object? sender, AssetRequestedEventArgs e)
-    {
-        if (!e.NameWithoutLocale.IsEquivalentTo("Data/Objects"))
-            return;
-
-        e.Edit(asset =>
-        {
-            asset.AsDictionary<string, ObjectData>().Data[CapRemovalItemId] = new ObjectData
-            {
-                Name = "Angler's Seal",
-                DisplayName = "Angler's Seal",
-                Description = "A rare seal earned through mastery of fishing. Use it to remove the daily fish catch cap.",
-                Type = "Basic",
-                Category = StardewValley.Object.junkCategory,
-                Price = 0,
-                Edibility = -300,
-                Texture = "Maps/springobjects",
-                SpriteIndex = 74
-            };
-        });
     }
 
     private void OnGameLaunched(object? sender, GameLaunchedEventArgs e)
@@ -166,6 +170,16 @@ internal sealed class ModEntry : Mod
             Monitor.Log($"Failed to patch FishingRod.playerCaughtFishEndFunction for catch tracking and trash deletion: {ex}", LogLevel.Warn);
         }
 
+        // Each integration is independent: if one mod is missing or has changed its internals,
+        // the others still initialize normally.
+        TryPatchEideeAutoEat();
+        TryPatchFastAnimations();
+        TryPatchTimeSpeed();
+    }
+
+    /// <summary>Patch Eidee Easy Fishing and Auto-Eat so their compatibility issue can be repaired.</summary>
+    private void TryPatchEideeAutoEat()
+    {
         try
         {
             _eideeType = AccessTools.TypeByName(EideeTypeName);
@@ -207,7 +221,7 @@ internal sealed class ModEntry : Mod
             }
 
             // Capture Eidee's actual mod instance without requiring Eidee to expose a public API.
-            _harmony.Patch(
+            _harmony!.Patch(
                 original: updateAutoRecast,
                 postfix: new HarmonyMethod(typeof(ModEntry), nameof(AfterEideeUpdateAutoRecast))
             );
@@ -224,6 +238,98 @@ internal sealed class ModEntry : Mod
         catch (Exception ex)
         {
             DisableIntegration($"Failed to initialize compatibility patches: {ex}");
+        }
+    }
+
+    /// <summary>Patch Fast Animations so its fishing speed multiplier can be kept in sync with fishing/mastery level.</summary>
+    private void TryPatchFastAnimations()
+    {
+        try
+        {
+            Type? fastAnimationsType = AccessTools.TypeByName(FastAnimationsTypeName);
+            if (fastAnimationsType is null)
+            {
+                Monitor.Log($"Couldn't find {FastAnimationsTypeName}; fishing animation speed sync is unavailable. Install Fast Animations to use it.", LogLevel.Info);
+                return;
+            }
+
+            MethodInfo? onUpdateTicked = AccessTools.Method(fastAnimationsType, "OnUpdateTicked");
+            _fastAnimationsConfigField = AccessTools.Field(fastAnimationsType, "Config");
+            _fastAnimationsUpdateConfigMethod = AccessTools.Method(fastAnimationsType, "UpdateConfig");
+
+            if (onUpdateTicked is null || _fastAnimationsConfigField is null || _fastAnimationsUpdateConfigMethod is null)
+            {
+                Monitor.Log("Fast Animations' internals have changed; fishing animation speed sync is unavailable.", LogLevel.Warn);
+                return;
+            }
+
+            _harmony!.Patch(
+                original: onUpdateTicked,
+                postfix: new HarmonyMethod(typeof(ModEntry), nameof(AfterFastAnimationsUpdateTicked))
+            );
+
+            _fastAnimationsIntegrationReady = true;
+            Monitor.Log("Fast Animations fishing speed sync initialized.", LogLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Failed to initialize Fast Animations fishing speed sync: {ex}", LogLevel.Warn);
+        }
+    }
+
+    /// <summary>Patch TimeSpeed so its flow of time can be kept in sync with the fishing animation speed.</summary>
+    private void TryPatchTimeSpeed()
+    {
+        try
+        {
+            Type? timeSpeedType = AccessTools.TypeByName(TimeSpeedTypeName);
+            if (timeSpeedType is null)
+            {
+                Monitor.Log($"Couldn't find {TimeSpeedTypeName}; time speed sync is unavailable. Install TimeSpeed to use it.", LogLevel.Info);
+                return;
+            }
+
+            MethodInfo? onUpdateTicked = AccessTools.Method(timeSpeedType, "OnUpdateTicked");
+            _timeSpeedConfigField = AccessTools.Field(timeSpeedType, "Config");
+            _timeSpeedUpdateSettingsMethod = AccessTools.Method(timeSpeedType, "UpdateSettingsForLocation");
+
+            if (onUpdateTicked is null || _timeSpeedConfigField is null || _timeSpeedUpdateSettingsMethod is null)
+            {
+                Monitor.Log("TimeSpeed's internals have changed; time speed sync is unavailable.", LogLevel.Warn);
+                return;
+            }
+
+            _harmony!.Patch(
+                original: onUpdateTicked,
+                postfix: new HarmonyMethod(typeof(ModEntry), nameof(AfterTimeSpeedUpdateTicked))
+            );
+
+            _timeSpeedIntegrationReady = true;
+            Monitor.Log("TimeSpeed time speed sync initialized.", LogLevel.Info);
+        }
+        catch (Exception ex)
+        {
+            Monitor.Log($"Failed to initialize TimeSpeed time speed sync: {ex}", LogLevel.Warn);
+        }
+    }
+
+    /// <summary>Harmony postfix for Pathoschild.Stardew.FastAnimations.ModEntry.OnUpdateTicked(...).</summary>
+    private static void AfterFastAnimationsUpdateTicked(object __instance)
+    {
+        if (Instance is not null)
+        {
+            Instance._fastAnimationsInstance = __instance;
+            Instance.UpdateFishingAnimationSync();
+        }
+    }
+
+    /// <summary>Harmony postfix for TimeSpeed.ModEntry.OnUpdateTicked(...).</summary>
+    private static void AfterTimeSpeedUpdateTicked(object __instance)
+    {
+        if (Instance is not null)
+        {
+            Instance._timeSpeedInstance = __instance;
+            Instance.UpdateTimeSpeedSync();
         }
     }
 
@@ -402,19 +508,6 @@ internal sealed class ModEntry : Mod
         if (_readyTicks < ReadyTicksRequired)
             return;
 
-        int dailyFishCatchCap = GetDailyFishCatchCap();
-        if (!IsDailyCapRemoved() && _config.DailyFishCatchCap > 0 && GetFishCaughtToday() >= dailyFishCatchCap)
-        {
-            if (!_dailyCapNotified)
-            {
-                Monitor.Log($"Daily fish catch cap ({dailyFishCatchCap}) reached; leaving Auto Recast paused after eating instead of resuming it.", LogLevel.Info);
-                _dailyCapNotified = true;
-            }
-
-            ClearPending();
-            return;
-        }
-
         RepairEideeAutoRecast(_pendingRod);
         ClearPending();
     }
@@ -477,7 +570,6 @@ internal sealed class ModEntry : Mod
     {
         _fishCaughtAtDayStart = GetTotalFishCaught();
         _dayGoldEarned = 0;
-        _dailyCapNotified = false;
     }
 
     private int GetTotalFishCaught()
@@ -495,12 +587,6 @@ internal sealed class ModEntry : Mod
     private int GetFishCaughtToday()
     {
         return Math.Max(0, GetTotalFishCaught() - _fishCaughtAtDayStart);
-    }
-
-    private int GetDailyFishCatchCap()
-    {
-        int fishingLevel = Math.Clamp(Game1.player.FishingLevel, 0, 10);
-        return _config.DailyFishCatchCap / 10 * fishingLevel;
     }
 
     // Fires once per real fish caught (not garbage), with the exact species/quality/count of that catch.
@@ -522,58 +608,10 @@ internal sealed class ModEntry : Mod
         if (fish is not StardewValley.Object caughtFish || caughtFish.Category != StardewValley.Object.FishCategory)
             return;
 
-        TryDropCapRemovalItem(numCaught);
-
         int value = caughtFish.sellToStorePrice(Game1.player.UniqueMultiplayerID) * Math.Max(1, numCaught);
 
         _sessionGoldEarned += value;
         _dayGoldEarned += value;
-    }
-
-    private void TryDropCapRemovalItem(int numCaught)
-    {
-        if (IsDailyCapRemoved() || Game1.player.fishingLevel.Value < 10 || PlayerHasCapRemovalItem())
-            return;
-
-        bool dropped = false;
-        for (int fishIndex = 0; fishIndex < Math.Max(1, numCaught); fishIndex++)
-        {
-            if (Game1.random.NextDouble() < CapRemovalItemDropChance)
-            {
-                dropped = true;
-                break;
-            }
-        }
-
-        if (!dropped)
-            return;
-
-        Item seal = ItemRegistry.Create(QualifiedCapRemovalItemId);
-        bool addedToInventory = Game1.player.addItemToInventoryBool(seal);
-        if (!addedToInventory)
-            Game1.createItemDebris(seal, Game1.player.getStandingPosition(), -1, Game1.currentLocation);
-
-        Game1.playSound("discoverMineral");
-        string message = addedToInventory
-            ? "You found an Angler's Seal!"
-            : "An Angler's Seal dropped at your feet!";
-        Game1.addHUDMessage(new HUDMessage(message, HUDMessage.newQuest_type));
-    }
-
-    private static bool PlayerHasCapRemovalItem()
-    {
-        foreach (Item? item in Game1.player.Items)
-        {
-            if (item?.QualifiedItemId == QualifiedCapRemovalItemId)
-                return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsDailyCapRemoved()
-    {
-        return Game1.player.modData.TryGetValue(CapRemovedModDataKey, out string? value) && value == "true";
     }
 
     private void RefreshComputedStats()
@@ -674,9 +712,6 @@ internal sealed class ModEntry : Mod
 
     private void OnButtonPressed(object? sender, ButtonPressedEventArgs e)
     {
-        if (TryUseCapRemovalItem(e.Button))
-            return;
-
         if (_config.ToggleTracker.JustPressed())
         {
             _config.ShowTracker = !_config.ShowTracker;
@@ -702,24 +737,6 @@ internal sealed class ModEntry : Mod
 
         // Stop this click from also reaching the fishing rod (which would otherwise start casting).
         Helper.Input.Suppress(e.Button);
-    }
-
-    private bool TryUseCapRemovalItem(SButton button)
-    {
-        if (!Context.IsWorldReady || !Context.IsPlayerFree ||
-            (!button.IsUseToolButton() && !button.IsActionButton()) ||
-            Game1.player.ActiveObject?.QualifiedItemId != QualifiedCapRemovalItemId)
-        {
-            return false;
-        }
-
-        Game1.player.modData[CapRemovedModDataKey] = "true";
-        Game1.player.reduceActiveItemByOne();
-        Helper.Input.Suppress(button);
-        Game1.playSound("reward");
-        Game1.addHUDMessage(new HUDMessage("The daily fish catch cap has been permanently removed.", HUDMessage.newQuest_type));
-        Monitor.Log("The player used an Angler's Seal; the daily fish catch cap is now permanently removed.", LogLevel.Info);
-        return true;
     }
 
     private void UpdateTrackerDrag()
@@ -787,6 +804,188 @@ internal sealed class ModEntry : Mod
         return Game1.currentGameTime.TotalGameTime.TotalSeconds;
     }
 
+    // 1x base, +1x per fishing level (0-10), +1x for each of the other four skills at level 10 (0-4),
+    // +1x per mastery level (0-5). Uses raw skill levels (not buff-boosted) since this reflects
+    // permanent progression. Maxes out at 20x once fishing and all other skills are level 10 and every
+    // mastery has been claimed.
+    private static float GetFishingAnimationMultiplier()
+    {
+        if (!Context.IsWorldReady)
+            return 1f;
+
+        Farmer player = Game1.player;
+        int fishingLevel = Math.Clamp(player.fishingLevel.Value, 0, 10);
+
+        int otherSkillsAtMax = 0;
+        if (player.farmingLevel.Value >= 10)
+            otherSkillsAtMax++;
+        if (player.miningLevel.Value >= 10)
+            otherSkillsAtMax++;
+        if (player.foragingLevel.Value >= 10)
+            otherSkillsAtMax++;
+        if (player.combatLevel.Value >= 10)
+            otherSkillsAtMax++;
+        otherSkillsAtMax = Math.Min(otherSkillsAtMax, MaxOtherSkillsAtMax);
+
+        int masteryLevel = Math.Clamp(MasteryTrackerMenu.getCurrentMasteryLevel(), 0, MaxMasteryLevel);
+
+        return 1 + fishingLevel + otherSkillsAtMax + masteryLevel;
+    }
+
+    /// <summary>Keep Fast Animations' fishing speed multiplier in sync with fishing/mastery level.</summary>
+    private void UpdateFishingAnimationSync()
+    {
+        if (!_fastAnimationsIntegrationReady || _fastAnimationsInstance is null || _fastAnimationsConfigField is null || _fastAnimationsUpdateConfigMethod is null)
+            return;
+
+        object? config = _fastAnimationsConfigField.GetValue(_fastAnimationsInstance);
+        if (config is null)
+            return;
+
+        _fastAnimationsFishingSpeedProperty ??= AccessTools.Property(config.GetType(), "FishingSpeed");
+        if (_fastAnimationsFishingSpeedProperty is null)
+            return;
+
+        _fastAnimationsBaselineFishingSpeed ??= (float)_fastAnimationsFishingSpeedProperty.GetValue(config)!;
+
+        float targetSpeed = _config.SyncFishingSpeedWithLevel
+            ? GetFishingAnimationMultiplier()
+            : _fastAnimationsBaselineFishingSpeed.Value;
+
+        if (_lastAppliedFishingAnimationSpeed.HasValue && Math.Abs(_lastAppliedFishingAnimationSpeed.Value - targetSpeed) < SpeedEpsilon)
+            return;
+
+        _fastAnimationsFishingSpeedProperty.SetValue(config, targetSpeed);
+        _fastAnimationsUpdateConfigMethod.Invoke(_fastAnimationsInstance, null);
+        _lastAppliedFishingAnimationSpeed = targetSpeed;
+    }
+
+    /// <summary>Restore Fast Animations' original fishing speed multiplier, e.g. when returning to the title screen.</summary>
+    private void RestoreFastAnimationsBaseline()
+    {
+        if (_fastAnimationsInstance is null || _fastAnimationsConfigField is null || _fastAnimationsUpdateConfigMethod is null ||
+            _fastAnimationsFishingSpeedProperty is null || _fastAnimationsBaselineFishingSpeed is null)
+            return;
+
+        object? config = _fastAnimationsConfigField.GetValue(_fastAnimationsInstance);
+        if (config is null)
+            return;
+
+        _fastAnimationsFishingSpeedProperty.SetValue(config, _fastAnimationsBaselineFishingSpeed.Value);
+        _fastAnimationsUpdateConfigMethod.Invoke(_fastAnimationsInstance, null);
+    }
+
+    /// <summary>Keep TimeSpeed's flow of time in sync with the current fishing animation speed while fishing.</summary>
+    private void UpdateTimeSpeedSync()
+    {
+        if (!_timeSpeedIntegrationReady || _timeSpeedInstance is null || _timeSpeedConfigField is null || _timeSpeedUpdateSettingsMethod is null)
+            return;
+
+        // Only the host actually drives the flow of time; touching TimeSpeed's config elsewhere would have no effect.
+        if (!Context.IsWorldReady || !Context.IsMainPlayer)
+            return;
+
+        object? config = _timeSpeedConfigField.GetValue(_timeSpeedInstance);
+        if (config is null)
+            return;
+
+        _timeSpeedSecondsPerMinuteProperty ??= AccessTools.Property(config.GetType(), "SecondsPerMinute");
+        object? secondsPerMinuteConfig = _timeSpeedSecondsPerMinuteProperty?.GetValue(config);
+        if (secondsPerMinuteConfig is null)
+            return;
+
+        Type spmType = secondsPerMinuteConfig.GetType();
+        _timeSpeedOutdoorsProperty ??= AccessTools.Property(spmType, "Outdoors");
+        _timeSpeedIndoorsProperty ??= AccessTools.Property(spmType, "Indoors");
+        _timeSpeedMinesProperty ??= AccessTools.Property(spmType, "Mines");
+        _timeSpeedSkullCavernProperty ??= AccessTools.Property(spmType, "SkullCavern");
+        _timeSpeedVolcanoDungeonProperty ??= AccessTools.Property(spmType, "VolcanoDungeon");
+        _timeSpeedByLocationNameProperty ??= AccessTools.Property(spmType, "ByLocationName");
+
+        if (_timeSpeedOutdoorsProperty is null || _timeSpeedIndoorsProperty is null ||
+            _timeSpeedMinesProperty is null || _timeSpeedSkullCavernProperty is null || _timeSpeedVolcanoDungeonProperty is null)
+            return;
+
+        if (_timeSpeedBaseline is null)
+        {
+            Dictionary<string, double> byLocationName = new(StringComparer.OrdinalIgnoreCase);
+            if (_timeSpeedByLocationNameProperty?.GetValue(secondsPerMinuteConfig) is System.Collections.IDictionary sourceDictionary)
+            {
+                foreach (System.Collections.DictionaryEntry entry in sourceDictionary)
+                    byLocationName[(string)entry.Key] = Convert.ToDouble(entry.Value);
+            }
+
+            _timeSpeedBaseline = new TimeSpeedBaseline(
+                (double)_timeSpeedOutdoorsProperty.GetValue(secondsPerMinuteConfig)!,
+                (double)_timeSpeedIndoorsProperty.GetValue(secondsPerMinuteConfig)!,
+                (double)_timeSpeedMinesProperty.GetValue(secondsPerMinuteConfig)!,
+                (double)_timeSpeedSkullCavernProperty.GetValue(secondsPerMinuteConfig)!,
+                (double)_timeSpeedVolcanoDungeonProperty.GetValue(secondsPerMinuteConfig)!,
+                byLocationName
+            );
+        }
+
+        bool isFishing = Game1.player.CurrentTool is FishingRod;
+        bool shouldSync = _config.SyncTimeSpeedWithFishingSpeed && isFishing;
+
+        double divisor = 1d;
+        if (shouldSync)
+        {
+            float multiplier = GetFishingAnimationMultiplier();
+            double strength = Math.Clamp(_config.TimeSpeedSyncStrengthPercent / 100d, 0, 1);
+            divisor = 1 + (multiplier - 1) * strength;
+        }
+
+        if (_lastAppliedTimeSpeedDivisor.HasValue && Math.Abs(_lastAppliedTimeSpeedDivisor.Value - divisor) < DivisorEpsilon)
+            return;
+
+        TimeSpeedBaseline baseline = _timeSpeedBaseline.Value;
+        _timeSpeedOutdoorsProperty.SetValue(secondsPerMinuteConfig, baseline.Outdoors / divisor);
+        _timeSpeedIndoorsProperty.SetValue(secondsPerMinuteConfig, baseline.Indoors / divisor);
+        _timeSpeedMinesProperty.SetValue(secondsPerMinuteConfig, baseline.Mines / divisor);
+        _timeSpeedSkullCavernProperty.SetValue(secondsPerMinuteConfig, baseline.SkullCavern / divisor);
+        _timeSpeedVolcanoDungeonProperty.SetValue(secondsPerMinuteConfig, baseline.VolcanoDungeon / divisor);
+
+        if (_timeSpeedByLocationNameProperty?.GetValue(secondsPerMinuteConfig) is System.Collections.IDictionary targetDictionary)
+        {
+            foreach (KeyValuePair<string, double> entry in baseline.ByLocationName)
+                targetDictionary[entry.Key] = entry.Value / divisor;
+        }
+
+        _timeSpeedUpdateSettingsMethod.Invoke(_timeSpeedInstance, new object?[] { Game1.currentLocation });
+        _lastAppliedTimeSpeedDivisor = divisor;
+    }
+
+    /// <summary>Restore TimeSpeed's original seconds-per-minute settings, e.g. when returning to the title screen.</summary>
+    private void RestoreTimeSpeedBaseline()
+    {
+        if (_timeSpeedInstance is null || _timeSpeedConfigField is null || _timeSpeedUpdateSettingsMethod is null || _timeSpeedBaseline is null ||
+            _timeSpeedOutdoorsProperty is null || _timeSpeedIndoorsProperty is null ||
+            _timeSpeedMinesProperty is null || _timeSpeedSkullCavernProperty is null || _timeSpeedVolcanoDungeonProperty is null)
+            return;
+
+        object? config = _timeSpeedConfigField.GetValue(_timeSpeedInstance);
+        object? secondsPerMinuteConfig = _timeSpeedSecondsPerMinuteProperty?.GetValue(config);
+        if (secondsPerMinuteConfig is null)
+            return;
+
+        TimeSpeedBaseline baseline = _timeSpeedBaseline.Value;
+        _timeSpeedOutdoorsProperty.SetValue(secondsPerMinuteConfig, baseline.Outdoors);
+        _timeSpeedIndoorsProperty.SetValue(secondsPerMinuteConfig, baseline.Indoors);
+        _timeSpeedMinesProperty.SetValue(secondsPerMinuteConfig, baseline.Mines);
+        _timeSpeedSkullCavernProperty.SetValue(secondsPerMinuteConfig, baseline.SkullCavern);
+        _timeSpeedVolcanoDungeonProperty.SetValue(secondsPerMinuteConfig, baseline.VolcanoDungeon);
+
+        if (_timeSpeedByLocationNameProperty?.GetValue(secondsPerMinuteConfig) is System.Collections.IDictionary targetDictionary)
+        {
+            foreach (KeyValuePair<string, double> entry in baseline.ByLocationName)
+                targetDictionary[entry.Key] = entry.Value;
+        }
+
+        if (Context.IsWorldReady)
+            _timeSpeedUpdateSettingsMethod.Invoke(_timeSpeedInstance, new object?[] { Game1.currentLocation });
+    }
+
     private void RegisterConfigMenu()
     {
         if (_configMenuRegistered)
@@ -820,15 +1019,29 @@ internal sealed class ModEntry : Mod
             name: () => "Automatically delete fishing trash",
             tooltip: () => "Delete trash caught while fishing instead of keeping it in your inventory. Algae and seaweed are preserved."
         );
+        api.AddBoolOption(
+            ModManifest,
+            getValue: () => _config.SyncFishingSpeedWithLevel,
+            setValue: value => _config.SyncFishingSpeedWithLevel = value,
+            name: () => "Sync fishing animation speed with level/mastery",
+            tooltip: () => "Requires Fast Animations. Sets its fishing animation speed multiplier from your fishing level (1x-10x), plus 1x for each of the other four skills at level 10 (up to +4x), plus 1x per mastery level (up to +5x), for a maximum of 20x."
+        );
+        api.AddBoolOption(
+            ModManifest,
+            getValue: () => _config.SyncTimeSpeedWithFishingSpeed,
+            setValue: value => _config.SyncTimeSpeedWithFishingSpeed = value,
+            name: () => "Sync time speed with fishing animation",
+            tooltip: () => "Requires TimeSpeed. While you have a fishing rod out, divides TimeSpeed's seconds-per-minute settings by the current fishing animation speed multiplier, so faster fishing doesn't also grant extra time in the day."
+        );
         api.AddNumberOption(
             ModManifest,
-            getValue: () => _config.DailyFishCatchCap,
-            setValue: value => _config.DailyFishCatchCap = value,
-            name: () => "Maximum daily fish catch cap",
-            tooltip: () => "The daily cap at fishing level 10. Lower levels receive one tenth of this amount per level. Once reached, the bridge stops re-arming Auto Recast after Auto-Eat interrupts it. Set to 0 to disable the cap.",
+            getValue: () => _config.TimeSpeedSyncStrengthPercent,
+            setValue: value => _config.TimeSpeedSyncStrengthPercent = value,
+            name: () => "Time speed sync strength",
+            tooltip: () => "How closely TimeSpeed's flow of time follows the fishing animation speed. 100% fully ties them together (e.g. 2x animation speed halves seconds-per-minute); 0% leaves TimeSpeed unaffected.",
             min: 0,
-            max: 2000,
-            interval: 10
+            max: 100,
+            interval: 5
         );
         _configMenuRegistered = true;
     }
@@ -895,13 +1108,19 @@ internal sealed class ModEntry : Mod
         _lastFishPerHour = 0;
         _mostFishPerHour = 0;
         _fishCaughtAtDayStart = 0;
-        _dailyCapNotified = false;
         _lastStatsRefreshRealSeconds = 0;
         _cachedFishPerHour = 0;
         _cachedGoldPerHourSession = 0;
         _lastGoldPerHour = 0;
         _sessionGoldEarned = 0;
         _dayGoldEarned = 0;
+
+        RestoreFastAnimationsBaseline();
+        RestoreTimeSpeedBaseline();
+        _fastAnimationsBaselineFishingSpeed = null;
+        _lastAppliedFishingAnimationSpeed = null;
+        _timeSpeedBaseline = null;
+        _lastAppliedTimeSpeedDivisor = null;
     }
 
     private void ClearPending()

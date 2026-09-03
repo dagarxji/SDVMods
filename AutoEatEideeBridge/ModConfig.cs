@@ -20,6 +20,13 @@ internal sealed class ModConfig
     public int TrackerY { get; set; } = -1;
     public bool DeleteFishingTrash { get; set; } = false;
 
-    // The level-10 daily cap. Each fishing level receives one tenth of this amount; 0 disables the cap.
-    public int DailyFishCatchCap { get; set; } = 500;
+    // Keeps Fast Animations' fishing speed multiplier in sync with fishing/mastery progress (1x-20x).
+    public bool SyncFishingSpeedWithLevel { get; set; } = true;
+
+    // Speeds up TimeSpeed's flow of time to match the current fishing animation speed while fishing.
+    public bool SyncTimeSpeedWithFishingSpeed { get; set; } = true;
+
+    // How closely TimeSpeed's flow of time follows the fishing animation speed, from 0 (no effect) to
+    // 100 (fully tied, e.g. 2x animation speed halves seconds-per-minute, 20x divides it by 20).
+    public int TimeSpeedSyncStrengthPercent { get; set; } = 100;
 }

@@ -32,6 +32,8 @@ public sealed class ModEntry : Mod
     {
         Config = helper.ReadConfig<ModConfig>();
         Config.DefaultSettings ??= new SaveSettings();
+        if (Config.DefaultSettings.SeasonPenaltyPercent == 200)
+            Config.DefaultSettings.SeasonPenaltyPercent = 1000;
         Config.DefaultSettings.Validate();
 
         Catalog = new SeasonCatalog(helper, Monitor);
@@ -67,8 +69,8 @@ public sealed class ModEntry : Mod
             () => EditableSettings.SeasonPenaltyPercent,
             value => MutateEditable(s => s.SeasonPenaltyPercent = value),
             () => "Season penalty",
-            () => "Multiplier applied once for each season the requirement is ahead. 200% means ×2 per season: one season ×2, two seasons ×4, three seasons ×8.",
-            100, 400, 25,
+            () => "Multiplier applied once for each season the requirement is ahead. 1000% means ×10 per season: one season ×10, two seasons ×100, three seasons ×1000.",
+            100, 2000, 25,
             value => $"×{value / 100d:0.##} / season");
 
         gmcm.AddNumberOption(ModManifest,
@@ -209,8 +211,9 @@ public sealed class ModEntry : Mod
         if (e.Button != SButton.MouseLeft)
             return;
 
-        Vector2 cursorPixels = e.Cursor.ScreenPixels;
-        Point cursor = new((int)cursorPixels.X, (int)cursorPixels.Y);
+        // Menu bounds use Stardew's scaled UI coordinates, so use the same coordinate
+        // conversion as vanilla menus instead of the raw screen-pixel position.
+        Point cursor = Game1.getMousePosition(true);
         if (TryGetNewGameCustomization(out CharacterCustomization? customization))
         {
             Rectangle creationBounds = GetCreationSettingsButtonBounds(customization);
@@ -277,15 +280,15 @@ public sealed class ModEntry : Mod
         menu = null!;
         bundle = null!;
 
-        if (!Context.IsWorldReady || Game1.currentLocation is not CommunityCenter || Game1.activeClickableMenu is not JunimoNoteMenu note)
+        if (!Context.IsWorldReady || Game1.activeClickableMenu is not JunimoNoteMenu note)
             return false;
 
         if (!TryReadJunimoNoteState(note, out bool specificBundlePage, out Bundle? current, out Item? heldItem, out Item? partialDonationItem, out int whichArea))
             return false;
         if (!specificBundlePage || current is null)
             return false;
-        if (current.complete || !current.depositsAllowed)
-            return false; // remote bundle menu isn't a donation location.
+        if (current.complete)
+            return false;
         if (heldItem is not null || partialDonationItem is not null)
             return false;
         if (whichArea == 4)

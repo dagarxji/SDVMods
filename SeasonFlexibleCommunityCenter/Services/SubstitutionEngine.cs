@@ -24,7 +24,7 @@ internal sealed class SubstitutionEngine
 
     public bool HasFutureTarget(Bundle bundle)
     {
-        if (bundle.complete || !bundle.depositsAllowed)
+        if (bundle.complete)
             return false;
 
         SaveSettings settings = GetSettings();
@@ -52,7 +52,7 @@ internal sealed class SubstitutionEngine
     public List<TargetOption> GetTargets(Bundle bundle)
     {
         List<TargetOption> targets = new();
-        if (bundle.complete || !bundle.depositsAllowed)
+        if (bundle.complete)
             return targets;
 
         SaveSettings settings = GetSettings();
@@ -96,38 +96,31 @@ internal sealed class SubstitutionEngine
     {
         SaveSettings settings = GetSettings();
         string currentSeason = NormalizeSeason(Game1.currentSeason);
-        Dictionary<(string Id, int Quality), (Item Sample, int Count)> inventory = new();
-
-        foreach (Item? item in Game1.player.Items)
+        List<CandidateOption> candidates = new();
+        foreach ((string id, _) in Catalog.GetItems(target.Kind, currentSeason))
         {
-            if (item is not SObject obj || item.Stack <= 0)
+            Item? sample = TryCreateItem(id, 1, 0);
+            if (sample is not SObject)
                 continue;
 
-            string qid = item.QualifiedItemId;
+            string qid = sample.QualifiedItemId;
             if (string.Equals(qid, target.DisplayItem.QualifiedItemId, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            if (!Catalog.TryGet(qid, out ItemSeasonInfo? info) || !info.Kinds.HasFlag(target.Kind))
-                continue;
-            if (!info.Seasons.Contains(currentSeason))
-                continue;
-
-            var key = (qid, obj.Quality);
-            if (inventory.TryGetValue(key, out var existing))
-                inventory[key] = (existing.Sample, existing.Count + item.Stack);
-            else
-                inventory[key] = (TryCreateItem(qid, 1, obj.Quality) ?? item.getOne(), item.Stack);
+            int quality = new[] { 4, 2, 1, 0 }.First(q => q == 0 || CountExact(Game1.player, qid, q) > 0);
+            Item qualitySample = TryCreateItem(qid, 1, quality) ?? sample;
+            candidates.Add(new CandidateOption(
+                qid,
+                quality,
+                qualitySample,
+                CountExact(Game1.player, qid, quality),
+                CalculateRequiredQuantity(target, qualitySample, settings)
+            ));
         }
 
-        return inventory
-            .Select(pair => new CandidateOption(
-                pair.Key.Id,
-                pair.Key.Quality,
-                pair.Value.Sample,
-                pair.Value.Count,
-                CalculateRequiredQuantity(target, pair.Value.Sample, settings)
-            ))
-            .OrderBy(p => p.Need > p.Have)
+        return candidates
+            .OrderByDescending(p => p.Have > 0)
+            .ThenBy(p => p.Need > p.Have)
             .ThenBy(p => p.Need)
             .ThenByDescending(p => GetSellPrice(p.Sample))
             .ThenBy(p => p.Sample.DisplayName, StringComparer.CurrentCultureIgnoreCase)
@@ -198,7 +191,9 @@ internal sealed class SubstitutionEngine
         double rawPriceRatio = targetPrice / creditedCandidatePrice;
         double valueWeight = settings.ValueScalingPercent / 100d;
         double priceFactor = 1d + (rawPriceRatio - 1d) * valueWeight;
-        priceFactor = Math.Max(0.10d, priceFactor);
+        // Value and quality can make a substitute more expensive, but they should not
+        // erase the minimum seasonal cost of exchanging for a future-season item.
+        priceFactor = Math.Max(1d, priceFactor);
 
         double raw = Math.Max(1, target.Ingredient.stack) * seasonFactor * priceFactor;
         int quantity = (int)Math.Ceiling(raw - 0.000001d);

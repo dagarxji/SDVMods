@@ -119,7 +119,8 @@ internal sealed class NewSaveSetupMenu : IClickableMenu
 
     public override void draw(SpriteBatch b)
     {
-        b.Draw(Game1.fadeToBlackRect, Game1.uiViewport.Bounds, Color.Black * 0.72f);
+        Rectangle viewport = new(Game1.uiViewport.X, Game1.uiViewport.Y, Game1.uiViewport.Width, Game1.uiViewport.Height);
+        b.Draw(Game1.fadeToBlackRect, viewport, Color.Black * 0.72f);
         Ui.DrawBox(b, new Rectangle(xPositionOnScreen, yPositionOnScreen, width, height));
 
         string title = IsFirstSetup ? "Season-Flexible Community Center" : "Season Exchange Settings";
@@ -136,7 +137,7 @@ internal sealed class NewSaveSetupMenu : IClickableMenu
         DrawButton(b, BalancedButton, "Balanced");
         DrawButton(b, ChallengingButton, "Challenging");
 
-        DrawSlider(b, 0, "Season penalty per season", Working.SeasonPenaltyPercent, 100, 400,
+        DrawSlider(b, 0, "Season penalty per season", Working.SeasonPenaltyPercent, 100, 2000,
             $"×{Working.SeasonPenaltyPercent / 100d:0.##}");
         DrawSlider(b, 1, "Value scaling", Working.ValueScalingPercent, 0, 100, $"{Working.ValueScalingPercent}%");
         DrawSlider(b, 2, "Quality credit", Working.QualityCreditPercent, 0, 100, $"{Working.QualityCreditPercent}%");
@@ -191,7 +192,7 @@ internal sealed class NewSaveSetupMenu : IClickableMenu
         Rectangle bounds = SliderBounds(index);
         double t = Math.Clamp((x - bounds.X) / (double)bounds.Width, 0d, 1d);
         if (index == 0)
-            Working.SeasonPenaltyPercent = RoundStep(100 + t * 300, 25);
+            Working.SeasonPenaltyPercent = RoundStep(100 + t * 1900, 25);
         else if (index == 1)
             Working.ValueScalingPercent = RoundStep(t * 100, 5);
         else

@@ -1,7 +1,7 @@
 {
   "Name": "Foreground Controller Input",
   "Author": "OpenAI",
-  "Version": "1.0.0",
+  "Version": "1.0.1",
   "Description": "Prevents Stardew Valley from receiving controller input while another application has focus.",
   "UniqueID": "OpenAI.ForegroundControllerInput",
   "EntryDll": "ForegroundControllerInput.dll",

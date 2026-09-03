@@ -9,6 +9,7 @@
     <ModFolderName>ForegroundControllerInput</ModFolderName>
     <EnableModDeploy>true</EnableModDeploy>
     <EnableModZip>true</EnableModZip>
+    <EnableHarmony>true</EnableHarmony>
   </PropertyGroup>
 
   <ItemGroup>

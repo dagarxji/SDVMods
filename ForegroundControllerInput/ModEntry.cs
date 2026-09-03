@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using HarmonyLib;
+using Microsoft.Xna.Framework.Input;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 
@@ -13,8 +15,24 @@ internal sealed class ModEntry : Mod
 {
     public override void Entry(IModHelper helper)
     {
+        Harmony harmony = new(this.ModManifest.UniqueID);
+        foreach (var method in AccessTools.GetDeclaredMethods(typeof(GamePad))
+            .Where(method => method.Name == nameof(GamePad.GetState) && method.ReturnType == typeof(GamePadState)))
+        {
+            harmony.Patch(method, prefix: new HarmonyMethod(typeof(ModEntry), nameof(BeforeGetState)));
+        }
+
         helper.Events.Input.ButtonPressed += this.OnButtonPressed;
         helper.Events.GameLoop.UpdateTicking += this.OnUpdateTicking;
+    }
+
+    private static bool BeforeGetState(ref GamePadState __result)
+    {
+        if (!OperatingSystem.IsWindows() || IsCurrentProcessForeground())
+            return true;
+
+        __result = default;
+        return false;
     }
 
     /// <summary>

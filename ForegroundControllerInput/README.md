@@ -5,7 +5,7 @@ A tiny SMAPI mod for Stardew Valley 1.6.x on Windows.
 ## What it does
 
 - If Stardew Valley (or its SMAPI process) has foreground focus, controller input works normally.
-- If you Alt+Tab to another game/app, Stardew keeps running but controller input is suppressed.
+- If you Alt+Tab to another game/app, Stardew keeps running but controller input is suppressed at both the SMAPI and raw MonoGame polling layers.
 - When you return to Stardew, controller input works again normally.
 - Inputs that were already held when focus was lost are also suppressed, so they can't continue affecting Stardew in the background.
 
@@ -13,7 +13,7 @@ This is designed to coexist with **Better Always Active**. It does **not** use S
 
 ## Why this should stop the local co-op issue
 
-SMAPI's input suppression prevents the game itself from handling a suppressed button. If you press Start/options or other controller buttons while playing Forza, those presses are discarded by Stardew while Forza owns foreground focus.
+Stardew's local co-op join handling can read the controller directly through MonoGame before SMAPI suppression takes effect. This mod also intercepts that raw controller state, so Start/options and other controller presses are discarded while another process owns foreground focus.
 
 ## Build
 

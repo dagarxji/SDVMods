@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
 using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
@@ -30,7 +31,14 @@ namespace AutoEatEideeBridge;
 /// </summary>
 internal sealed class ModEntry : Mod
 {
-    private readonly record struct CatchInventoryState(string ItemId, int PreviousCount, bool IsTrash);
+    private readonly record struct CatchInventoryState(string ItemId, int PreviousCount, bool ShouldDestroy);
+
+    /// <summary>A caught item waiting to be destroyed once it actually lands in the inventory or an overflow menu.</summary>
+    private readonly record struct PendingCatchDeletion(string ItemId, int PreviousCount, int CaughtCount, long SinceTick)
+    {
+        /// <summary>How many of this item should be present once the catch fully lands.</summary>
+        public int ExpectedCount => PreviousCount + CaughtCount;
+    }
 
     private const string EideeTypeName = "EideeEasyFishing.ModEntry";
     private const string AutoEatTypeName = "AutoEat.ModEntry";
@@ -39,6 +47,10 @@ internal sealed class ModEntry : Mod
 
     // Don't leave a stale pending resume around indefinitely if another mod changes state.
     private const long PendingTimeoutTicks = 600; // ~10 seconds at Stardew's normal 60 ticks/sec.
+
+    // How long a pending catch deletion stays armed after the catch was collected. While the fish
+    // is still being held overhead (uncollected) there's no time limit, so slow clicks are fine.
+    private const long CatchDeletionTimeoutTicks = 600;
     private const int ReadyTicksRequired = 2;
     private const int TrackerHideDelayTicks = 300;
     private const int TrackerMinWidth = 300;
@@ -78,6 +90,17 @@ internal sealed class ModEntry : Mod
     private FishingRod? _pendingRod;
     private long _pendingSinceTick;
     private int _readyTicks;
+
+    // Multiple catches can be awaiting deletion at once (e.g. Wild Bait double catches, or
+    // back-to-back catches during autocast), so keep a queue rather than a single pending entry.
+    private readonly List<PendingCatchDeletion> _pendingCatchDeletions = new();
+    private bool _autoDestroyMenuRequested;
+
+    /// <summary>The on-screen bounds of the "Manage auto-destroy items" button drawn inside GMCM, in UI pixels.</summary>
+    private Rectangle _autoDestroyButtonBounds;
+
+    /// <summary>The game tick when the button was last drawn; used to confirm it's currently visible before accepting a click.</summary>
+    private long _autoDestroyButtonDrawnTick = -1;
 
     private bool _trackingFishing;
     private int _fishingStartedTime;
@@ -333,23 +356,51 @@ internal sealed class ModEntry : Mod
         }
     }
 
-    /// <summary>Harmony prefix used to distinguish the newly caught stack from trash already carried.</summary>
+    /// <summary>Harmony prefix used to snapshot the inventory before the catch lands in it.</summary>
     private static void BeforePlayerCaughtFish(FishingRod __instance, out CatchInventoryState __state)
     {
-        string itemId = __instance.whichFish.QualifiedItemId;
-        bool isTrash = Instance?._config.DeleteFishingTrash == true && IsFishingTrash(itemId);
-        int previousCount = isTrash ? CountInventoryItem(itemId) : 0;
-        __state = new CatchInventoryState(itemId, previousCount, isTrash);
+        __state = default;
+
+        if (__instance.lastUser?.IsLocalPlayer != true || Game1.isFestival())
+            return;
+
+        string? itemId = __instance.whichFish?.QualifiedItemId;
+        if (itemId is null || !ShouldAutoDestroy(itemId))
+            return;
+
+        __state = new CatchInventoryState(itemId, CountInventoryItem(itemId), ShouldDestroy: true);
     }
 
     /// <summary>Harmony postfix after Stardew finalizes a catch and applies perfect-catch quality upgrades.</summary>
     private static void AfterPlayerCaughtFish(FishingRod __instance, CatchInventoryState __state)
     {
-        if (__state.IsTrash)
-            DeleteInventoryIncrease(__state.ItemId, __state.PreviousCount);
+        // The caught item is not in the inventory yet at this point: the game only adds it once the
+        // player clicks through the hold-up pose (or into an overflow ItemGrabMenu when the
+        // inventory is full). Queue the deletion and let OnUpdateTicked apply it once the item
+        // actually lands somewhere.
+        if (__state.ShouldDestroy && Instance is not null)
+        {
+            int caughtCount = Math.Max(1, __instance.numberOfFishCaught);
+            Instance._pendingCatchDeletions.Add(new PendingCatchDeletion(__state.ItemId, __state.PreviousCount, caughtCount, Game1.ticks));
+        }
 
-        if (!Game1.isFestival())
+        if (!Game1.isFestival() && __instance.lastUser?.IsLocalPlayer == true)
             Instance?.RecordFishCatch(__instance.whichFish.QualifiedItemId, __instance.fishQuality, __instance.numberOfFishCaught);
+    }
+
+    /// <summary>Whether a caught item should be destroyed: junk-category trash when enabled, or any item the user listed.</summary>
+    private static bool ShouldAutoDestroy(string itemId)
+    {
+        if (Instance is null)
+            return false;
+
+        foreach (string listedId in Instance._config.AutoDestroyItemIds)
+        {
+            if (string.Equals(listedId, itemId, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return Instance._config.DeleteFishingTrash && IsFishingTrash(itemId);
     }
 
     private static bool IsFishingTrash(string itemId)
@@ -395,6 +446,112 @@ internal sealed class ModEntry : Mod
             if (item.Stack <= 0)
                 Game1.player.Items[slot] = null;
         }
+    }
+
+    /// <summary>
+    /// Apply queued catch deletions. A caught item shows up in the inventory (or in an overflow
+    /// ItemGrabMenu when the inventory is full) only after the player clicks through the hold-up
+    /// pose, so this sweeps both places until the catch has been collected and destroyed.
+    /// </summary>
+    private void UpdatePendingCatchDeletion()
+    {
+        if (_pendingCatchDeletions.Count == 0)
+            return;
+
+        if (!Context.IsWorldReady)
+        {
+            _pendingCatchDeletions.Clear();
+            return;
+        }
+
+        for (int i = _pendingCatchDeletions.Count - 1; i >= 0; i--)
+        {
+            PendingCatchDeletion pending = _pendingCatchDeletions[i];
+
+            if (Game1.activeClickableMenu is ItemGrabMenu { context: FishingRod } grabMenu)
+                RemoveAutoDestroyItemFromGrabMenu(grabMenu, pending.ItemId);
+
+            // Also sweep overflow menus that are queued but haven't become active yet (treasure and
+            // multi-item catches can queue an overflow menu before it's shown).
+            foreach (IClickableMenu queuedMenu in Game1.nextClickableMenu)
+            {
+                if (queuedMenu is ItemGrabMenu { context: FishingRod } queuedGrabMenu)
+                    RemoveAutoDestroyItemFromGrabMenu(queuedGrabMenu, pending.ItemId);
+            }
+
+            // Reduce the inventory down to the pre-catch count for this item, destroying whatever
+            // the catch added. Once we're back at (or below) the baseline, the deletion is done.
+            int currentCount = CountInventoryItem(pending.ItemId);
+            if (currentCount > pending.PreviousCount)
+            {
+                Monitor.Log($"Auto-destroy: removing {currentCount - pending.PreviousCount}x {pending.ItemId} from inventory (catch landed).", LogLevel.Trace);
+                DeleteInventoryIncrease(pending.ItemId, pending.PreviousCount);
+                currentCount = CountInventoryItem(pending.ItemId);
+            }
+
+            if (currentCount <= pending.PreviousCount)
+            {
+                // Fully handled (or the catch never made it to inventory), so stop tracking it.
+                _pendingCatchDeletions.RemoveAt(i);
+            }
+            else if (Game1.ticks - pending.SinceTick > CatchDeletionTimeoutTicks && !IsCatchStillHeld(pending.ItemId))
+            {
+                // Safety net: stop sweeping a stale entry that never resolved.
+                _pendingCatchDeletions.RemoveAt(i);
+            }
+        }
+    }
+
+    /// <summary>Whether the player is still holding the given catch overhead (not yet collected).</summary>
+    private static bool IsCatchStillHeld(string itemId)
+    {
+        return Game1.player.CurrentTool is FishingRod rod
+            && rod.fishCaught
+            && rod.whichFish?.QualifiedItemId == itemId;
+    }
+
+    /// <summary>Remove all instances of the auto-destroy item from a fishing overflow/treasure menu, closing the menu if nothing else remains.</summary>
+    private static void RemoveAutoDestroyItemFromGrabMenu(ItemGrabMenu menu, string itemId)
+    {
+        IList<Item> items = menu.ItemsToGrabMenu.actualInventory;
+        bool removedAny = false;
+        for (int i = 0; i < items.Count; i++)
+        {
+            if (items[i]?.QualifiedItemId == itemId)
+            {
+                items[i] = null!;
+                removedAny = true;
+            }
+        }
+
+        // If the menu only held the destroyed item, skip the "place in inventory" prompt entirely.
+        if (removedAny && menu.areAllItemsTaken())
+        {
+            menu.setEssential(false);
+            menu.exitThisMenu(playSound: false);
+        }
+    }
+
+    /// <summary>Open the auto-destroy items editor once the config menu that requested it has closed (and saved).</summary>
+    private void OpenAutoDestroyMenuWhenReady()
+    {
+        if (!_autoDestroyMenuRequested)
+            return;
+
+        if (!Context.IsWorldReady)
+        {
+            _autoDestroyMenuRequested = false;
+            return;
+        }
+
+        if (Game1.activeClickableMenu is not null)
+        {
+            Game1.exitActiveMenu();
+            return;
+        }
+
+        Game1.activeClickableMenu = new AutoDestroyItemsMenu(_config.AutoDestroyItemIds, () => Helper.WriteConfig(_config));
+        _autoDestroyMenuRequested = false;
     }
 
     /// <summary>Harmony postfix for EideeEasyFishing.ModEntry.UpdateAutoRecast().</summary>
@@ -449,6 +606,8 @@ internal sealed class ModEntry : Mod
         if (!_configMenuRegistered)
             RegisterConfigMenu();
 
+        UpdatePendingCatchDeletion();
+        OpenAutoDestroyMenuWhenReady();
         UpdateFishingTracker();
         UpdateTrackerDrag();
         RefreshComputedStats();
@@ -570,6 +729,7 @@ internal sealed class ModEntry : Mod
     {
         _fishCaughtAtDayStart = GetTotalFishCaught();
         _dayGoldEarned = 0;
+        _pendingCatchDeletions.Clear();
     }
 
     private int GetTotalFishCaught()
@@ -716,6 +876,18 @@ internal sealed class ModEntry : Mod
         {
             _config.ShowTracker = !_config.ShowTracker;
             Helper.WriteConfig(_config);
+        }
+
+        // Only treat the click as a button press if GMCM drew the button very recently (i.e. its
+        // menu is open and the button is actually on screen). A small window covers the fact that
+        // input events fire during the update phase while the draw callback runs during render.
+        if (e.Button == SButton.MouseLeft && Game1.ticks - _autoDestroyButtonDrawnTick <= 2 &&
+            _autoDestroyButtonBounds.Contains(Game1.getMouseX(ui_scale: true), Game1.getMouseY(ui_scale: true)))
+        {
+            Game1.playSound("smallSelect");
+            _autoDestroyMenuRequested = true;
+            Helper.Input.Suppress(e.Button);
+            return;
         }
 
         if (e.Button != SButton.MouseLeft || _draggingTracker || !_config.ShowTracker || !Context.IsWorldReady)
@@ -988,7 +1160,12 @@ internal sealed class ModEntry : Mod
 
         // Eidee's state is only readable for the local player; remote players are judged by synced net fields.
         if (farmer.IsLocalPlayer)
-            return rod.inUse() || IsAutoRecastArmed(rod);
+        {
+            // While a menu is open (e.g. the "inventory full" overflow after a catch) the player
+            // isn't actively fishing and vanilla would pause time here. Don't keep time racing at
+            // the fishing multiplier; TimeSpeed resumes its normal speed until the menu closes.
+            return Game1.activeClickableMenu is null && (rod.inUse() || IsAutoRecastArmed(rod));
+        }
 
         return farmer.UsingTool || rod.isFishing || rod.castedButBobberStillInAir || rod.isCasting || rod.isReeling;
     }
@@ -1023,6 +1200,27 @@ internal sealed class ModEntry : Mod
             _timeSpeedUpdateSettingsMethod.Invoke(_timeSpeedInstance, new object?[] { Game1.currentLocation });
     }
 
+    /// <summary>The height reserved for the "Manage auto-destroy items" button row in GMCM.</summary>
+    private const int AutoDestroyButtonHeight = 56;
+
+    /// <summary>Draw the "Manage auto-destroy items" button inside GMCM and record its bounds for click detection.</summary>
+    private void DrawAutoDestroyButton(SpriteBatch b, Vector2 position)
+    {
+        const string label = "Manage auto-destroy items...";
+        int textWidth = (int)Game1.smallFont.MeasureString(label).X;
+        int buttonWidth = textWidth + 48;
+        int buttonHeight = AutoDestroyButtonHeight - 8;
+        int x = (int)position.X;
+        int y = (int)position.Y + 4;
+
+        _autoDestroyButtonBounds = new Rectangle(x, y, buttonWidth, buttonHeight);
+        _autoDestroyButtonDrawnTick = Game1.ticks;
+
+        bool hovered = _autoDestroyButtonBounds.Contains(Game1.getMouseX(ui_scale: true), Game1.getMouseY(ui_scale: true));
+        IClickableMenu.drawTextureBox(b, Game1.menuTexture, new Rectangle(0, 256, 60, 60), x, y, buttonWidth, buttonHeight, hovered ? Color.Wheat : Color.White);
+        b.DrawString(Game1.smallFont, label, new Vector2(x + 24, y + (buttonHeight - Game1.smallFont.LineSpacing) / 2), Game1.textColor);
+    }
+
     private void RegisterConfigMenu()
     {
         if (_configMenuRegistered)
@@ -1055,6 +1253,15 @@ internal sealed class ModEntry : Mod
             setValue: value => _config.DeleteFishingTrash = value,
             name: () => "Automatically delete fishing trash",
             tooltip: () => "Delete trash caught while fishing instead of keeping it in your inventory. Algae and seaweed are preserved."
+        );
+        // A real button: the draw callback renders it and records its on-screen bounds, and
+        // OnButtonPressed opens the editor when those bounds are clicked.
+        api.AddComplexOption(
+            ModManifest,
+            name: () => "Auto-destroy items",
+            tooltip: () => "Extra items that are destroyed automatically when caught while fishing. Click to manage the list.",
+            draw: DrawAutoDestroyButton,
+            height: () => AutoDestroyButtonHeight
         );
         api.AddBoolOption(
             ModManifest,
@@ -1134,6 +1341,8 @@ internal sealed class ModEntry : Mod
     {
         _eideeInstance = null;
         ClearPending();
+        _pendingCatchDeletions.Clear();
+        _autoDestroyMenuRequested = false;
         _trackingFishing = false;
         _fishingStartedTime = 0;
         _fishingStoppedTime = 0;

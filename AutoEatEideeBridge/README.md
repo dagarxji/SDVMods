@@ -48,7 +48,16 @@ the tracker to move it; its position is saved automatically.
 
 Generic Mod Config Menu also includes an **Automatically delete fishing
 trash** option. When enabled, caught trash and Joja Cola are removed instead
-of being kept in the farmer's inventory. Algae and seaweed are preserved.
+of being kept in the farmer's inventory. Algae and seaweed are preserved. If
+the inventory is full and the catch would open the "place in inventory"
+popup, the trash is removed straight from the popup — and if nothing else was
+in it, the popup is skipped entirely.
+
+The **Auto-destroy items** button on the config page opens a small editor for
+your own auto-destroy list: click an item in your inventory to add it, and
+click the X next to a listed item to remove it (mouse wheel scrolls long
+lists). Listed items are destroyed whenever they're caught while fishing,
+even when the trash option above is turned off.
 
 ## Fishing speed sync (Fast Animations + TimeSpeed)
 
@@ -82,6 +91,12 @@ values as soon as the rod is put away. For example, with TimeSpeed's default
 seconds/minute, and the full 20x becomes 0.035 seconds/minute. This only
 applies for the host player, since TimeSpeed only lets the host directly
 control the flow of time.
+
+The sync also pauses while a menu is open (for example the "place in
+inventory" popup when a catch overflows a full inventory), so time doesn't
+race ahead while you rearrange your inventory. In single player this matches
+vanilla's menu pause; in multiplayer, where time always passes, time simply
+flows at its normal speed until the menu is closed.
 
 The **Time speed sync strength** slider (0-100%, default 100%) controls how
 closely the two are tied together. At 100%, the relationship above applies

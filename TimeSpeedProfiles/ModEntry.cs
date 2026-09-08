@@ -1,8 +1,10 @@
 using System.Reflection;
 using HarmonyLib;
+using Microsoft.Xna.Framework;
 using StardewModdingAPI;
 using StardewModdingAPI.Events;
 using StardewValley;
+using StardewValley.Locations;
 
 namespace TimeSpeedProfiles;
 
@@ -13,6 +15,9 @@ internal sealed class ModEntry : Mod
     private const string GmcmId = "spacechase0.GenericModConfigMenu";
     private const string ImportTempFile = "__timespeed_import.tmp.json";
     private const string ActiveTempFile = "__timespeed_active.tmp.json";
+
+    /// <summary>The in-game time TimeSpeed freezes at when <see cref="FreezeTimeConfig.PassOut"/> is enabled (1:50 AM).</summary>
+    private const int PassOutFreezeTime = 2550;
 
     private static ModEntry? Instance;
 
@@ -25,6 +30,7 @@ internal sealed class ModEntry : Mod
     private IManifest? TimeSpeedManifest;
     private IGenericModConfigMenuApi? Gmcm;
     private bool? LastAppliedMultiplayer;
+    private bool TeleportedHomeToday;
 
     public override void Entry(IModHelper helper)
     {
@@ -35,6 +41,7 @@ internal sealed class ModEntry : Mod
         this.Config.Normalize();
 
         helper.Events.GameLoop.GameLaunched += this.OnGameLaunched;
+        helper.Events.GameLoop.DayStarted += this.OnDayStarted;
         helper.Events.GameLoop.UpdateTicked += this.OnUpdateTicked;
         helper.Events.GameLoop.ReturnedToTitle += this.OnReturnedToTitle;
     }
@@ -160,6 +167,8 @@ internal sealed class ModEntry : Mod
         bool isMultiplayer = Context.IsMultiplayer;
         if (this.LastAppliedMultiplayer != isMultiplayer)
             this.ApplyActiveProfile(force: true);
+
+        this.CheckTeleportHomeOnFreeze(isMultiplayer);
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
@@ -167,6 +176,41 @@ internal sealed class ModEntry : Mod
         this.TimeSpeedInstance = null;
         this.LastAppliedMultiplayer = null;
         this.HideOriginalTimeSpeedConfigMenu();
+    }
+
+    private void OnDayStarted(object? sender, DayStartedEventArgs e)
+    {
+        this.TeleportedHomeToday = false;
+    }
+
+    /// <summary>Teleport the player home once per day if time just froze because of <see cref="FreezeTimeConfig.AnywhereAtTime"/> or <see cref="FreezeTimeConfig.PassOut"/>.</summary>
+    private void CheckTeleportHomeOnFreeze(bool isMultiplayer)
+    {
+        if (this.TeleportedHomeToday)
+            return;
+
+        bool teleportEnabled = isMultiplayer
+            ? this.Config.MultiplayerTeleportHomeOnFreeze
+            : this.Config.SinglePlayerTeleportHomeOnFreeze;
+        if (!teleportEnabled)
+            return;
+
+        FreezeTimeConfig freeze = (isMultiplayer ? this.Config.Multiplayer : this.Config.SinglePlayer).FreezeTime;
+        bool frozenAtTime = freeze.AnywhereAtTime.HasValue && Game1.timeOfDay >= freeze.AnywhereAtTime.Value;
+        bool frozenBeforePassOut = freeze.PassOut && Game1.timeOfDay >= PassOutFreezeTime;
+        if (!frozenAtTime && !frozenBeforePassOut)
+            return;
+
+        this.TeleportedHomeToday = true;
+        TeleportPlayerHome();
+    }
+
+    /// <summary>Warp the player to the tile just inside their front door, matching where the game normally places them when entering from outside.</summary>
+    private static void TeleportPlayerHome()
+    {
+        FarmHouse home = Utility.getHomeOfFarmer(Game1.player);
+        Point entry = home.getEntryLocation();
+        Game1.warpFarmer(home.NameOrUniqueName, entry.X, entry.Y, 2);
     }
 
     private void ImportExistingTimeSpeedConfig()
@@ -405,6 +449,14 @@ internal sealed class ModEntry : Mod
             tooltip: () => "Freeze time at 1:50 AM so the player doesn't pass out from the 2:00 AM limit.",
             fieldId: $"{fieldPrefix}.FreezeTime.PassOut"
         );
+        this.Gmcm.AddBoolOption(
+            this.ModManifest,
+            getValue: () => this.GetTeleportHomeOnFreeze(fieldPrefix),
+            setValue: value => this.SetTeleportHomeOnFreeze(fieldPrefix, value),
+            name: () => "Teleport home automatically",
+            tooltip: () => "When time freezes because of \"Freeze everywhere at time\" or \"Freeze before passing out\", automatically send the player home to just inside their front door.",
+            fieldId: $"{fieldPrefix}.TeleportHomeOnFreeze"
+        );
         this.Gmcm.AddBoolOption(this.ModManifest, () => getProfile().FreezeTime.Indoors, v => getProfile().FreezeTime.Indoors = v, () => "Freeze indoors", () => "Automatically freeze time in indoor locations.", $"{fieldPrefix}.FreezeTime.Indoors");
         this.Gmcm.AddBoolOption(this.ModManifest, () => getProfile().FreezeTime.Outdoors, v => getProfile().FreezeTime.Outdoors = v, () => "Freeze outdoors", () => "Automatically freeze time in outdoor locations.", $"{fieldPrefix}.FreezeTime.Outdoors");
         this.Gmcm.AddBoolOption(this.ModManifest, () => getProfile().FreezeTime.Mines, v => getProfile().FreezeTime.Mines = v, () => "Freeze in mines", () => "Automatically freeze time in mine levels 1-120.", $"{fieldPrefix}.FreezeTime.Mines");
@@ -467,6 +519,21 @@ internal sealed class ModEntry : Mod
         return fieldPrefix == "mp"
             ? this.Config.MultiplayerLocationCutoffs
             : this.Config.SinglePlayerLocationCutoffs;
+    }
+
+    private bool GetTeleportHomeOnFreeze(string fieldPrefix)
+    {
+        return fieldPrefix == "mp"
+            ? this.Config.MultiplayerTeleportHomeOnFreeze
+            : this.Config.SinglePlayerTeleportHomeOnFreeze;
+    }
+
+    private void SetTeleportHomeOnFreeze(string fieldPrefix, bool value)
+    {
+        if (fieldPrefix == "mp")
+            this.Config.MultiplayerTeleportHomeOnFreeze = value;
+        else
+            this.Config.SinglePlayerTeleportHomeOnFreeze = value;
     }
 
     private void AddSpeedOption(

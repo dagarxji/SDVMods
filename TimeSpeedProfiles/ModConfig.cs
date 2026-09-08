@@ -19,6 +19,12 @@ internal sealed class ModConfig
     /// <summary>Location-specific time cutoffs used in multiplayer and split-screen.</summary>
     public LocationCutoffConfig MultiplayerLocationCutoffs { get; set; } = new();
 
+    /// <summary>Whether to teleport the player home when time freezes due to <see cref="FreezeTimeConfig.AnywhereAtTime"/> or <see cref="FreezeTimeConfig.PassOut"/>, outside multiplayer.</summary>
+    public bool SinglePlayerTeleportHomeOnFreeze { get; set; } = false;
+
+    /// <summary>Whether to teleport the player home when time freezes due to <see cref="FreezeTimeConfig.AnywhereAtTime"/> or <see cref="FreezeTimeConfig.PassOut"/>, in multiplayer and split-screen.</summary>
+    public bool MultiplayerTeleportHomeOnFreeze { get; set; } = false;
+
     public void Normalize()
     {
         this.SinglePlayer ??= new TimeSpeedProfile();

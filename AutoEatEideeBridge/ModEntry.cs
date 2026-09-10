@@ -103,6 +103,7 @@ internal sealed class ModEntry : Mod
     private long _autoDestroyButtonDrawnTick = -1;
 
     private bool _trackingFishing;
+    private bool _sfxMutedForAutoFishing;
     private int _fishingStartedTime;
     private int _fishingStoppedTime;
     private double _fishingStartedRealSeconds;
@@ -702,9 +703,36 @@ internal sealed class ModEntry : Mod
             _fishCaughtAtSessionStart = GetTotalFishCaught();
             _fishCaughtThisSession = 0;
             _sessionGoldEarned = 0;
+            MuteForAutoFishing();
         }
         else if (!isFishing && _trackingFishing)
             StopFishingTracker();
+    }
+
+    /// <summary>Silence music/sound/ambient/footstep audio while autocast fishing is active.</summary>
+    private void MuteForAutoFishing()
+    {
+        if (_sfxMutedForAutoFishing || !_config.MuteSoundWhileAutoFishing)
+            return;
+
+        Game1.musicCategory?.SetVolume(0f);
+        Game1.soundCategory?.SetVolume(0f);
+        Game1.ambientCategory?.SetVolume(0f);
+        Game1.footstepCategory?.SetVolume(0f);
+        _sfxMutedForAutoFishing = true;
+    }
+
+    /// <summary>Restore the player's normal audio volume after autocast fishing stops for any reason.</summary>
+    private void UnmuteAfterAutoFishing()
+    {
+        if (!_sfxMutedForAutoFishing)
+            return;
+
+        Game1.musicCategory?.SetVolume(Game1.options.musicVolumeLevel);
+        Game1.soundCategory?.SetVolume(Game1.options.soundVolumeLevel);
+        Game1.ambientCategory?.SetVolume(Game1.options.ambientVolumeLevel);
+        Game1.footstepCategory?.SetVolume(Game1.options.footstepVolumeLevel);
+        _sfxMutedForAutoFishing = false;
     }
 
     private void StopFishingTracker()
@@ -714,6 +742,7 @@ internal sealed class ModEntry : Mod
 
         _fishCaughtThisSession = Math.Max(0, GetTotalFishCaught() - _fishCaughtAtSessionStart);
         _trackingFishing = false;
+        UnmuteAfterAutoFishing();
         _fishingStoppedTime = Game1.timeOfDay;
         _fishingStoppedRealSeconds = GetRealGameSeconds();
         _fishingStoppedGameMinutes = GetContinuousElapsedGameMinutes();
@@ -1287,6 +1316,18 @@ internal sealed class ModEntry : Mod
             max: 100,
             interval: 5
         );
+        api.AddBoolOption(
+            ModManifest,
+            getValue: () => _config.MuteSoundWhileAutoFishing,
+            setValue: value =>
+            {
+                _config.MuteSoundWhileAutoFishing = value;
+                if (!value)
+                    UnmuteAfterAutoFishing();
+            },
+            name: () => "Mute sound while autocast fishing",
+            tooltip: () => "Silences music/sound/ambient/footstep audio while Eidee's Auto Recast is actively fishing, restoring your normal volume as soon as autocast stops for any reason."
+        );
         _configMenuRegistered = true;
     }
 
@@ -1343,6 +1384,7 @@ internal sealed class ModEntry : Mod
         ClearPending();
         _pendingCatchDeletions.Clear();
         _autoDestroyMenuRequested = false;
+        UnmuteAfterAutoFishing();
         _trackingFishing = false;
         _fishingStartedTime = 0;
         _fishingStoppedTime = 0;

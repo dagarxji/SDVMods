@@ -37,4 +37,8 @@ internal sealed class ModConfig
     // How closely TimeSpeed's flow of time follows the fishing animation speed, from 0 (no effect) to
     // 100 (fully tied, e.g. 2x animation speed halves seconds-per-minute, 20x divides it by 20).
     public int TimeSpeedSyncStrengthPercent { get; set; } = 100;
+
+    // Mutes music/sound/ambient/footstep audio while Eidee's Auto Recast is actively fishing, and
+    // restores the player's normal volume once autocast fishing stops for any reason.
+    public bool MuteSoundWhileAutoFishing { get; set; } = false;
 }

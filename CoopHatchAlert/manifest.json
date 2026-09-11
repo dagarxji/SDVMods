@@ -1,0 +1,10 @@
+{
+  "Name": "Coop Hatch Alert",
+  "Author": "OpenAI",
+  "Version": "1.0.0",
+  "Description": "Notifies you when an incubated egg is ready, marks the coop outside, and shows incubator status on hover.",
+  "UniqueID": "OpenAI.CoopHatchAlert",
+  "EntryDll": "CoopHatchAlert.dll",
+  "MinimumApiVersion": "4.0.0",
+  "UpdateKeys": []
+}

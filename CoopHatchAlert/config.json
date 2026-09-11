@@ -1,0 +1,9 @@
+{
+  "EnableNotifications": true,
+  "NotifyWhenCoopIsFull": true,
+  "EnableExteriorMarker": true,
+  "EnableExteriorTooltip": true,
+  "EnableIncubatorTooltip": true,
+  "ShowEmptyIncubatorTooltip": true,
+  "MarkerScale": 3.0
+}

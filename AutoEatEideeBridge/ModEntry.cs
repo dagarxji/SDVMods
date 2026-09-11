@@ -1330,14 +1330,14 @@ internal sealed class ModEntry : Mod
             ModManifest,
             getValue: () => _config.SyncFishingSpeedWithLevel,
             setValue: value => _config.SyncFishingSpeedWithLevel = value,
-            name: () => "Sync fishing animation speed with level/mastery",
+            name: () => "Sync animation speed with level",
             tooltip: () => "Requires Fast Animations. Sets its fishing animation speed multiplier from your fishing level (1x-10x), plus 1x for each of the other four skills at level 10 (up to +4x), plus 1x per mastery level (up to +5x), for a maximum of 20x."
         );
         api.AddBoolOption(
             ModManifest,
             getValue: () => _config.SyncTimeSpeedWithFishingSpeed,
             setValue: value => _config.SyncTimeSpeedWithFishingSpeed = value,
-            name: () => "Sync time speed with fishing animation",
+            name: () => "Sync time speed with fishing",
             tooltip: () => "Requires TimeSpeed. While you're actually casting (or autocast is running), divides TimeSpeed's seconds-per-minute settings by the current fishing animation speed multiplier, so faster fishing doesn't also grant extra time in the day. In multiplayer the effect is scaled by how many players are fishing (e.g. 4x with 1 of 2 players fishing acts as 2x)."
         );
         api.AddNumberOption(

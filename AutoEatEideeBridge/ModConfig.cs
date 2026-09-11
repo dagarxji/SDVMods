@@ -24,6 +24,9 @@ internal sealed class ModConfig
     public int TrackerY { get; set; } = -1;
     public bool DeleteFishingTrash { get; set; } = false;
 
+    // Joja Cola is normally junk-category like the other fishing trash, but some players want to keep it.
+    public bool KeepJojaColaWhenDeletingTrash { get; set; } = false;
+
     // Qualified item IDs (e.g. "(O)167") the user picked to destroy automatically when caught while
     // fishing. Edited through the in-game auto-destroy items menu.
     public List<string> AutoDestroyItemIds { get; set; } = new();

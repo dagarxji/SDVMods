@@ -366,7 +366,11 @@ internal sealed class ModEntry : Mod
             return;
 
         string? itemId = __instance.whichFish?.QualifiedItemId;
-        if (itemId is null || !ShouldAutoDestroy(itemId))
+        if (itemId is null)
+            return;
+
+        bool shouldDestroy = ShouldAutoDestroy(itemId);
+        if (!shouldDestroy)
             return;
 
         __state = new CatchInventoryState(itemId, CountInventoryItem(itemId), ShouldDestroy: true);
@@ -382,6 +386,7 @@ internal sealed class ModEntry : Mod
         if (__state.ShouldDestroy && Instance is not null)
         {
             int caughtCount = Math.Max(1, __instance.numberOfFishCaught);
+            Instance.Monitor.Log($"Auto-destroy: queuing deletion of {caughtCount}x {GetItemDisplayName(__state.ItemId)} ({__state.ItemId}) (previous inventory count was {__state.PreviousCount}).", LogLevel.Trace);
             Instance._pendingCatchDeletions.Add(new PendingCatchDeletion(__state.ItemId, __state.PreviousCount, caughtCount, Game1.ticks));
         }
 
@@ -401,11 +406,17 @@ internal sealed class ModEntry : Mod
                 return true;
         }
 
-        return Instance._config.DeleteFishingTrash && IsFishingTrash(itemId);
+        bool isTrash = Instance._config.DeleteFishingTrash && IsFishingTrash(itemId);
+        if (isTrash)
+            Instance.Monitor.Log($"Auto-destroy: {GetItemDisplayName(itemId)} ({itemId}) counts as fishing trash.", LogLevel.Trace);
+        return isTrash;
     }
 
     private static bool IsFishingTrash(string itemId)
     {
+        if (itemId == "(O)167" && Instance?._config.KeepJojaColaWhenDeletingTrash == true)
+            return false;
+
         Item? item;
         try
         {
@@ -418,6 +429,19 @@ internal sealed class ModEntry : Mod
 
         return item is StardewValley.Object caughtObject &&
             (caughtObject.Category == StardewValley.Object.junkCategory || item.QualifiedItemId == "(O)167");
+    }
+
+    /// <summary>Look up an item's real display name (e.g. "Trash", "Broken CD") from game data for logging.</summary>
+    private static string GetItemDisplayName(string itemId)
+    {
+        try
+        {
+            return ItemRegistry.Create(itemId, 1, 0, allowNull: true)?.DisplayName ?? itemId;
+        }
+        catch
+        {
+            return itemId;
+        }
     }
 
     private static int CountInventoryItem(string itemId)
@@ -481,23 +505,23 @@ internal sealed class ModEntry : Mod
             }
 
             // Reduce the inventory down to the pre-catch count for this item, destroying whatever
-            // the catch added. Once we're back at (or below) the baseline, the deletion is done.
+            // the catch added. Until the catch actually lands (count rises above the baseline),
+            // there's nothing to delete yet, so keep waiting rather than treating "no change yet"
+            // as "already handled" - otherwise this bails out before the catch ever lands.
             int currentCount = CountInventoryItem(pending.ItemId);
             if (currentCount > pending.PreviousCount)
             {
-                Monitor.Log($"Auto-destroy: removing {currentCount - pending.PreviousCount}x {pending.ItemId} from inventory (catch landed).", LogLevel.Trace);
+                Monitor.Log($"Auto-destroy: removing {currentCount - pending.PreviousCount}x {GetItemDisplayName(pending.ItemId)} ({pending.ItemId}) from inventory (catch landed, expected {pending.ExpectedCount}, had {currentCount}).", LogLevel.Trace);
                 DeleteInventoryIncrease(pending.ItemId, pending.PreviousCount);
                 currentCount = CountInventoryItem(pending.ItemId);
-            }
 
-            if (currentCount <= pending.PreviousCount)
-            {
-                // Fully handled (or the catch never made it to inventory), so stop tracking it.
+                Monitor.Log($"Auto-destroy: finished handling pending deletion of {GetItemDisplayName(pending.ItemId)} ({pending.ItemId}) (inventory count now {currentCount}).", LogLevel.Trace);
                 _pendingCatchDeletions.RemoveAt(i);
             }
             else if (Game1.ticks - pending.SinceTick > CatchDeletionTimeoutTicks && !IsCatchStillHeld(pending.ItemId))
             {
                 // Safety net: stop sweeping a stale entry that never resolved.
+                Monitor.Log($"Auto-destroy: giving up on stale pending deletion of {GetItemDisplayName(pending.ItemId)} ({pending.ItemId}) after timeout (inventory count still {currentCount}, expected {pending.ExpectedCount}).", LogLevel.Warn);
                 _pendingCatchDeletions.RemoveAt(i);
             }
         }
@@ -524,6 +548,9 @@ internal sealed class ModEntry : Mod
                 removedAny = true;
             }
         }
+
+        if (removedAny)
+            Instance?.Monitor.Log($"Auto-destroy: removed {GetItemDisplayName(itemId)} ({itemId}) from an overflow catch menu.", LogLevel.Trace);
 
         // If the menu only held the destroyed item, skip the "place in inventory" prompt entirely.
         if (removedAny && menu.areAllItemsTaken())
@@ -1282,6 +1309,13 @@ internal sealed class ModEntry : Mod
             setValue: value => _config.DeleteFishingTrash = value,
             name: () => "Automatically delete fishing trash",
             tooltip: () => "Delete trash caught while fishing instead of keeping it in your inventory. Algae and seaweed are preserved."
+        );
+        api.AddBoolOption(
+            ModManifest,
+            getValue: () => _config.KeepJojaColaWhenDeletingTrash,
+            setValue: value => _config.KeepJojaColaWhenDeletingTrash = value,
+            name: () => "Keep Joja Cola",
+            tooltip: () => "Joja Cola normally counts as fishing trash like Trash/Driftwood/Broken CD/etc. Enable this to keep it instead of auto-deleting it."
         );
         // A real button: the draw callback renders it and records its on-screen bounds, and
         // OnButtonPressed opens the editor when those bounds are clicked.

@@ -180,17 +180,25 @@ internal sealed class ModEntry : Mod
 
     private void TalkToNpc(GameMenu parentMenu, NPC npc)
     {
+        PrepareReturnToSocial(parentMenu);
+
+        // Vanilla reports the conversation before checking whether friendship
+        // was already granted today, so newly received quests can still advance.
+        Game1.player.NotifyQuests(quest => quest.OnNpcSocialized(npc));
+        if (Game1.activeClickableMenu is DialogueBox)
+            return;
+
         // CurrentDialogue lazily loads the NPC's normal dialogue for the day.
         // We intentionally don't call NPC.checkAction here: that method depends
         // on physical location, sleeping state, and the player's held item, which
         // would defeat the point of a remote Talk button.
         if (npc.CurrentDialogue.Count <= 0)
         {
+            CancelPendingReturn();
             Game1.showRedMessage($"{npc.displayName} has nothing to say right now.");
             return;
         }
 
-        PrepareReturnToSocial(parentMenu);
         npc.grantConversationFriendship(Game1.player);
         Game1.drawDialogue(npc);
         RestoreImmediatelyIfNoDialogue(parentMenu);

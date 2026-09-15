@@ -26,10 +26,15 @@ internal sealed class ModEntry : Mod
     private object? TimeSpeedInstance;
     private Type? TimeSpeedType;
     private MethodInfo? TimeSpeedReloadConfig;
+    private MethodInfo? TimeSpeedUpdateTimeFreeze;
     private string? TimeSpeedDirectory;
     private IManifest? TimeSpeedManifest;
     private IGenericModConfigMenuApi? Gmcm;
     private bool? LastAppliedMultiplayer;
+    private int? FestivalStartTime;
+    private int? FestivalEndTime;
+    private bool FestivalAttendedToday;
+    private bool? LastFestivalRunning;
     private bool TeleportedHomeToday;
 
     public override void Entry(IModHelper helper)
@@ -65,10 +70,17 @@ internal sealed class ModEntry : Mod
 
         this.TimeSpeedDirectory = Path.GetDirectoryName(this.TimeSpeedType.Assembly.Location);
         this.TimeSpeedReloadConfig = AccessTools.Method(this.TimeSpeedType, "ReloadConfig");
+        this.TimeSpeedUpdateTimeFreeze = AccessTools.Method(
+            this.TimeSpeedType,
+            "UpdateTimeFreeze",
+            new[] { typeof(bool?), typeof(bool) }
+        );
 
-        if (string.IsNullOrWhiteSpace(this.TimeSpeedDirectory) || this.TimeSpeedReloadConfig is null)
+        if (string.IsNullOrWhiteSpace(this.TimeSpeedDirectory)
+            || this.TimeSpeedReloadConfig is null
+            || this.TimeSpeedUpdateTimeFreeze is null)
         {
-            this.Monitor.Log("Couldn't locate TimeSpeed's config/reload implementation. This companion targets TimeSpeed 2.8.1.", LogLevel.Error);
+            this.Monitor.Log("Couldn't locate TimeSpeed's config/reload/freeze implementation. This companion targets TimeSpeed 2.8.1.", LogLevel.Error);
             return;
         }
 
@@ -140,10 +152,20 @@ internal sealed class ModEntry : Mod
 
     private static void AfterTimeSpeedShouldFreezeAtTime(int time, ref bool __result)
     {
-        if (__result || Instance is null || Game1.currentLocation is null)
+        if (__result || Instance is null)
             return;
 
-        LocationCutoffConfig cutoffs = Context.IsMultiplayer
+        bool isMultiplayer = Context.IsMultiplayer;
+        if (Instance.ShouldFreezeForFestival(time, isMultiplayer))
+        {
+            __result = true;
+            return;
+        }
+
+        if (Game1.currentLocation is null)
+            return;
+
+        LocationCutoffConfig cutoffs = isMultiplayer
             ? Instance.Config.MultiplayerLocationCutoffs
             : Instance.Config.SinglePlayerLocationCutoffs;
 
@@ -154,33 +176,106 @@ internal sealed class ModEntry : Mod
     private void OnTimeSpeedSaveLoaded(object timeSpeedInstance)
     {
         this.TimeSpeedInstance = timeSpeedInstance;
+        this.LoadFestivalSchedule();
         this.ApplyActiveProfile(force: true);
         this.HideOriginalTimeSpeedConfigMenu();
     }
 
     private void OnUpdateTicked(object? sender, UpdateTickedEventArgs e)
     {
-        if (!e.IsOneSecond || !Context.IsWorldReady || this.TimeSpeedInstance is null)
+        if (!Context.IsWorldReady || this.TimeSpeedInstance is null)
             return;
 
-        // This catches transitions into/out of co-op and split-screen even if no remote peer event fires.
-        bool isMultiplayer = Context.IsMultiplayer;
-        if (this.LastAppliedMultiplayer != isMultiplayer)
-            this.ApplyActiveProfile(force: true);
+        if (e.IsOneSecond)
+        {
+            // This catches transitions into/out of co-op and split-screen even if no remote peer event fires.
+            bool isMultiplayer = Context.IsMultiplayer;
+            if (this.LastAppliedMultiplayer != isMultiplayer)
+                this.ApplyActiveProfile(force: true);
 
-        this.CheckTeleportHomeOnFreeze(isMultiplayer);
+            this.CheckTeleportHomeOnFreeze(isMultiplayer);
+        }
+
+        this.RefreshFreezeOnFestivalTransition();
     }
 
     private void OnReturnedToTitle(object? sender, ReturnedToTitleEventArgs e)
     {
         this.TimeSpeedInstance = null;
         this.LastAppliedMultiplayer = null;
+        this.LastFestivalRunning = null;
         this.HideOriginalTimeSpeedConfigMenu();
+    }
+
+    private void RefreshFreezeOnFestivalTransition()
+    {
+        bool festivalRunning = Game1.isFestival();
+        if (festivalRunning)
+            this.FestivalAttendedToday = true;
+
+        if (this.LastFestivalRunning == festivalRunning)
+            return;
+
+        this.LastFestivalRunning = festivalRunning;
+        if (!Context.IsMainPlayer || this.TimeSpeedUpdateTimeFreeze is null || this.TimeSpeedInstance is null)
+            return;
+
+        try
+        {
+            this.TimeSpeedUpdateTimeFreeze.Invoke(this.TimeSpeedInstance, new object?[] { null, false });
+        }
+        catch (TargetInvocationException ex)
+        {
+            this.Monitor.Log($"TimeSpeed failed while refreshing festival freeze state.\n{ex.InnerException ?? ex}", LogLevel.Error);
+        }
+        catch (Exception ex)
+        {
+            this.Monitor.Log($"Couldn't refresh TimeSpeed's festival freeze state.\n{ex}", LogLevel.Error);
+        }
     }
 
     private void OnDayStarted(object? sender, DayStartedEventArgs e)
     {
         this.TeleportedHomeToday = false;
+        this.LoadFestivalSchedule();
+    }
+
+    private void LoadFestivalSchedule()
+    {
+        this.FestivalStartTime = null;
+        this.FestivalEndTime = null;
+        this.FestivalAttendedToday = false;
+        this.LastFestivalRunning = null;
+
+        string festivalId = $"{Utility.getSeasonKey(Game1.season)}{Game1.dayOfMonth}";
+        if (Utility.isFestivalDay()
+            && StardewValley.Event.tryToLoadFestivalData(
+                festivalId,
+                out _,
+                out _,
+                out _,
+                out int startTime,
+                out int endTime
+            ))
+        {
+            this.FestivalStartTime = startTime;
+            this.FestivalEndTime = endTime;
+        }
+    }
+
+    private bool ShouldFreezeForFestival(int time, bool isMultiplayer)
+    {
+        bool enabled = isMultiplayer
+            ? this.Config.MultiplayerFreezeTimeDuringEvents
+            : this.Config.SinglePlayerFreezeTimeDuringEvents;
+
+        return enabled
+            && this.FestivalStartTime.HasValue
+            && this.FestivalEndTime.HasValue
+            && time >= this.FestivalStartTime.Value
+            && time < this.FestivalEndTime.Value
+            && !this.FestivalAttendedToday
+            && !Game1.isFestival();
     }
 
     /// <summary>Teleport the player home once per day if time just froze because of <see cref="FreezeTimeConfig.AnywhereAtTime"/> or <see cref="FreezeTimeConfig.PassOut"/>.</summary>
@@ -408,6 +503,14 @@ internal sealed class ModEntry : Mod
         );
 
         this.Gmcm.AddSectionTitle(this.ModManifest, () => "Freeze time");
+        this.Gmcm.AddBoolOption(
+            this.ModManifest,
+            getValue: () => this.GetFreezeTimeDuringEvents(fieldPrefix),
+            setValue: value => this.SetFreezeTimeDuringEvents(fieldPrefix, value),
+            name: () => "Freeze for festivals",
+            tooltip: () => "Freeze the clock when today's festival opens so you have time to reach it. Normal time rules resume upon entering the festival.",
+            fieldId: $"{fieldPrefix}.FreezeTimeDuringEvents"
+        );
         this.Gmcm.AddNumberOption(
             this.ModManifest,
             getValue: () => Utility.ConvertTimeToMinutes(getProfile().FreezeTime.AnywhereAtTime ?? 2600),
@@ -534,6 +637,21 @@ internal sealed class ModEntry : Mod
             this.Config.MultiplayerTeleportHomeOnFreeze = value;
         else
             this.Config.SinglePlayerTeleportHomeOnFreeze = value;
+    }
+
+    private bool GetFreezeTimeDuringEvents(string fieldPrefix)
+    {
+        return fieldPrefix == "mp"
+            ? this.Config.MultiplayerFreezeTimeDuringEvents
+            : this.Config.SinglePlayerFreezeTimeDuringEvents;
+    }
+
+    private void SetFreezeTimeDuringEvents(string fieldPrefix, bool value)
+    {
+        if (fieldPrefix == "mp")
+            this.Config.MultiplayerFreezeTimeDuringEvents = value;
+        else
+            this.Config.SinglePlayerFreezeTimeDuringEvents = value;
     }
 
     private void AddSpeedOption(

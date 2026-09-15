@@ -47,6 +47,8 @@ Every TimeSpeed 2.8.1 config setting is mirrored:
 
 Each profile also has a companion-provided `Freeze at time by location` map.
 
+Each profile also has a companion-only **Freeze for festivals** checkbox. When enabled, the clock freezes when today's active festival opens so the player has unlimited time to reach the festival location. The freeze is removed as soon as the player enters; Stardew then handles time normally for the festival. Attending is remembered for the rest of the day, so leaving a festival at the same time it began won't freeze the clock again. This setting isn't written into TimeSpeed's generated config.
+
 Each profile also has a companion-only **Teleport home automatically** checkbox. When enabled, if time freezes because of that profile's `FreezeTime.AnywhereAtTime` cutoff or its `FreezeTime.PassOut` setting (1:50 AM), the player is warped home to the tile just inside their front door, once per in-game day. This doesn't trigger for location-based freezes (indoors/outdoors/mines/etc.) or `FreezeTime.ByLocationName`/`ExceptLocationNames`, matching TimeSpeed's own distinction between global time freezes and location freezes. This setting isn't written into TimeSpeed's generated config.
 
 Notably, the companion exposes **`SecondsPerMinute.ByLocationName` in GMCM**, even though TimeSpeed 2.8.1 only exposes that setting through its JSON file. Enter it as e.g.:

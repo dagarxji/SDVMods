@@ -25,6 +25,12 @@ internal sealed class ModConfig
     /// <summary>Whether to teleport the player home when time freezes due to <see cref="FreezeTimeConfig.AnywhereAtTime"/> or <see cref="FreezeTimeConfig.PassOut"/>, in multiplayer and split-screen.</summary>
     public bool MultiplayerTeleportHomeOnFreeze { get; set; } = false;
 
+    /// <summary>Whether to freeze time when today's festival opens until the player enters, outside multiplayer.</summary>
+    public bool SinglePlayerFreezeTimeDuringEvents { get; set; } = false;
+
+    /// <summary>Whether to freeze time when today's festival opens until the player enters, in multiplayer and split-screen.</summary>
+    public bool MultiplayerFreezeTimeDuringEvents { get; set; } = false;
+
     public void Normalize()
     {
         this.SinglePlayer ??= new TimeSpeedProfile();

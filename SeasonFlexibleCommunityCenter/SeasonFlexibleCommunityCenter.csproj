@@ -12,4 +12,8 @@
   <ItemGroup>
     <PackageReference Include="Pathoschild.Stardew.ModBuildConfig" Version="4.4.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="src\**\*.cs" />
+  </ItemGroup>
 </Project>

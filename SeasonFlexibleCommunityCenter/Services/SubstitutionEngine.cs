@@ -191,9 +191,6 @@ internal sealed class SubstitutionEngine
         double rawPriceRatio = targetPrice / creditedCandidatePrice;
         double valueWeight = settings.ValueScalingPercent / 100d;
         double priceFactor = 1d + (rawPriceRatio - 1d) * valueWeight;
-        // Value and quality can make a substitute more expensive, but they should not
-        // erase the minimum seasonal cost of exchanging for a future-season item.
-        priceFactor = Math.Max(1d, priceFactor);
 
         double raw = Math.Max(1, target.Ingredient.stack) * seasonFactor * priceFactor;
         int quantity = (int)Math.Ceiling(raw - 0.000001d);

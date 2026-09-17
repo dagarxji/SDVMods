@@ -1,0 +1,4 @@
+{
+  "purchase.prompt": "How many Qi Coins would you like to buy?",
+  "purchase.complete": "Bought {{count}} Qi Coins."
+}

@@ -1,0 +1,9 @@
+{
+  "Name": "Bulk Qi Coin Purchases",
+  "Author": "OpenAI",
+  "Version": "1.0.0",
+  "Description": "Replaces the Casino cashier's repeated confirmation with a bulk Qi Coin quantity prompt.",
+  "UniqueID": "OpenAI.BulkQiCoinPurchases",
+  "EntryDll": "BulkQiCoinPurchases.dll",
+  "MinimumApiVersion": "4.0.0"
+}

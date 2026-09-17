@@ -8,6 +8,7 @@ A single repository containing all of my Stardew Valley SMAPI mods. Each mod liv
 |-----------|-----|-------------|
 | [AutoEatEideeBridge](./AutoEatEideeBridge) | Auto-Eat + Eidee Easy Fishing Bridge | Bridges Auto-Eat and Eidee's Easy Fishing, with optional Fast Animations fishing-speed and TimeSpeed sync. |
 | [BetterBundleOverview](./BetterBundleOverview) | Better Bundle Overview | Shows bundle requirements directly on the Community Center overview page. |
+| [BulkQiCoinPurchases](./BulkQiCoinPurchases) | Bulk Qi Coin Purchases | Replaces the Casino cashier's repeated confirmation with a bulk quantity prompt. |
 | [CoopHatchAlert](./CoopHatchAlert) | Coop Hatch Alert | Notifies you when an incubated egg is ready, marks the coop outside, and shows incubator status on hover. |
 | [CrowdedTrees](./CrowdedTrees) | Crowded Trees | Allows regular and producing trees to grow beside trees of the same kind. |
 | [FishingForecast](./FishingForecast) | Fishing Forecast | Ranks the best accessible fishing locations for five four-hour periods each day. |

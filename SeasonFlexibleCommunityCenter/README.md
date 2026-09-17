@@ -26,6 +26,7 @@ So a cheap Spring crop can replace a Fall crop, but it may take a substantial st
   - fish -> fish;
   - forage -> forage;
   - fruit-tree fruit -> fruit-tree fruit.
+- Crafted-object requirements inherit the categories and seasons of recognized seasonal recipe ingredients (for example, Jack-O-Lantern inherits crop/fall from Pumpkin).
 - Per-season exponential difficulty scaling.
 - Sell-value scaling so cheap items require larger stacks.
 - Quality credit for silver/gold/iridium substitutes.
@@ -103,6 +104,7 @@ At save load and each day start, it reads the final game assets *after other mod
 - `Data/FruitTrees` for tree fruit and fruit seasons;
 - `Data/Fish` to identify fish items;
 - `Data/Locations` for fish/forage seasons;
+- `Data/CraftingRecipes` to classify crafted-object requirements from seasonal ingredients;
 - the active Community Center `Bundle` objects / synchronized bundle state for the actual selected requirements.
 
 That makes it compatible by design with expansion/content packs which add their content through Stardew 1.6's standard data assets or Content Patcher. This is the same general compatibility strategy used by other bundle-planning mods which support SVE and custom crops.

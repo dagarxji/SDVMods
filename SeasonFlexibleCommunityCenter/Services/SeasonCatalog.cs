@@ -38,6 +38,9 @@ internal sealed class SeasonCatalog
         try { ScanLocations(); }
         catch (Exception ex) { Monitor.Log($"Couldn't scan Data/Locations: {ex.Message}", LogLevel.Warn); }
 
+        try { ScanCraftingRecipes(); }
+        catch (Exception ex) { Monitor.Log($"Couldn't scan Data/CraftingRecipes: {ex.Message}", LogLevel.Warn); }
+
         ApplyOverrides();
         Monitor.Log($"Season catalog contains {Items.Count} seasonal item definitions.", LogLevel.Trace);
     }
@@ -109,6 +112,14 @@ internal sealed class SeasonCatalog
         object data = Helper.GameContent.Load<object>("Data/Locations");
         foreach ((_, object location) in EnumerateDictionary(data))
         {
+            foreach (object artifactSpot in Enumerate(GetProperty(location, "ArtifactSpots")))
+            {
+                string? itemId = GetString(artifactSpot, "ItemId");
+                HashSet<string> seasons = GetExplicitSeasonsFromEntry(artifactSpot);
+                if (seasons.Count > 0)
+                    Add(itemId, ItemKind.Forage, seasons);
+            }
+
             foreach (object forage in Enumerate(GetProperty(location, "Forage")))
             {
                 string? itemId = GetString(forage, "ItemId");
@@ -121,6 +132,39 @@ internal sealed class SeasonCatalog
                 string? itemId = GetString(fish, "ItemId");
                 HashSet<string> seasons = GetSeasonFromEntry(fish, null);
                 Add(itemId, ItemKind.Fish, seasons);
+            }
+        }
+    }
+
+    private void ScanCraftingRecipes()
+    {
+        object data = Helper.GameContent.Load<object>("Data/CraftingRecipes");
+        foreach ((_, object value) in EnumerateDictionary(data))
+        {
+            string[] fields = value.ToString()?.Split('/') ?? Array.Empty<string>();
+            if (fields.Length < 4 || !bool.TryParse(fields[3], out bool isBigCraftable) || isBigCraftable)
+                continue;
+
+            string[] ingredients = fields[0].Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            ItemKind kinds = ItemKind.None;
+            HashSet<string> seasons = new(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i + 1 < ingredients.Length; i += 2)
+            {
+                if (!TryGet(ingredients[i], out ItemSeasonInfo? ingredientInfo))
+                    continue;
+
+                kinds |= ingredientInfo.Kinds;
+                seasons.UnionWith(ingredientInfo.Seasons);
+            }
+
+            if (kinds == ItemKind.None || seasons.Count == 0)
+                continue;
+
+            string[] outputs = fields[2].Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            for (int i = 0; i < outputs.Length; i += 2)
+            {
+                foreach (ItemKind kind in GetIndividualKinds(kinds))
+                    Add(outputs[i], kind, seasons);
             }
         }
     }
@@ -151,6 +195,15 @@ internal sealed class SeasonCatalog
         "fruit" or "fruittree" or "fruit tree" => ItemKind.Fruit,
         _ => ItemKind.None
     };
+
+    private static IEnumerable<ItemKind> GetIndividualKinds(ItemKind kinds)
+    {
+        foreach (ItemKind kind in new[] { ItemKind.Crop, ItemKind.Fish, ItemKind.Forage, ItemKind.Fruit })
+        {
+            if (kinds.HasFlag(kind))
+                yield return kind;
+        }
+    }
 
     private void AddKind(string? id, ItemKind kind)
     {
@@ -183,13 +236,7 @@ internal sealed class SeasonCatalog
 
     private static HashSet<string> GetSeasonFromEntry(object entry, HashSet<string>? fallback)
     {
-        string? season = GetString(entry, "Season");
-        string? normalizedSeason = NormalizeSeason(season);
-        if (normalizedSeason is not null)
-            return new HashSet<string>(new[] { normalizedSeason }, StringComparer.OrdinalIgnoreCase);
-
-        string? condition = GetString(entry, "Condition");
-        HashSet<string> parsed = ParseSeasonsFromCondition(condition);
+        HashSet<string> parsed = GetExplicitSeasonsFromEntry(entry);
         if (parsed.Count > 0)
             return parsed;
 
@@ -197,6 +244,14 @@ internal sealed class SeasonCatalog
             return new HashSet<string>(fallback, StringComparer.OrdinalIgnoreCase);
 
         return new HashSet<string>(AllSeasons, StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static HashSet<string> GetExplicitSeasonsFromEntry(object entry)
+    {
+        string? normalizedSeason = NormalizeSeason(GetString(entry, "Season"));
+        return normalizedSeason is not null
+            ? new HashSet<string>(new[] { normalizedSeason }, StringComparer.OrdinalIgnoreCase)
+            : ParseSeasonsFromCondition(GetString(entry, "Condition"));
     }
 
     private static HashSet<string> ParseSeasonsFromCondition(string? condition)
